@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it."
+authors:
+  - family-names: Cornejo Fuentes
+    given-names: Joaquin
+title: igaops
+version: 0.1.0
+date-released: 2026-06-13
+url: "https://github.com/JoaquinCORNEJO/igaops"
+references:
+  - type: thesis
+    authors:
+      - family-names: Cornejo Fuentes
+        given-names: Joaquin
+    title: "Matrix-free weighted quadrature isogeometric analysis applied to thermal and mechanical simulations"
+    year: 2024
+    institution:
+      name: INSA Lyon
