@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "igaops"
+version = "0.1.0"
+description = "Matrix-free weighted quadrature operators for isogeometric analysis"
+authors = [{ name = "Joaquin Cornejo Fuentes", email = "joaquin.cofu@gmail.com" }]
+readme = "README.md"
+requires-python = ">=3.10"
+license = "LGPL-2.1-or-later"
+
+keywords = [
+    "isogeometric analysis",
+    "IGA",
+    "finite element method",
+    "weighted quadrature",
+    "matrix-free",
+    "NURBS",
+    "B-splines",
+]
+
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "geomdl>=5.4",
+]
+
+[project.optional-dependencies]
+viz = [
+    "matplotlib>=3.9",
+    "pandas>=2.2",
+    "seaborn>=0.13",
+]
+dev = [
+    "black",
+    "mypy",
+    "pytest",
+]
+
+[project.urls]
+Repository = "https://github.com/JoaquinCORNEJO/igaops.git"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["igaops*"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311", "py312"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

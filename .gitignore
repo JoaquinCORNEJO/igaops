@@ -1,0 +1,51 @@
+### --- Python Environment --- ###
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+### --- Distribution & Build --- ###
+# This handles your *-info/ and other build artifacts
+dist/
+build/
+*.egg-info/
+*.egg
+.installed.cfg
+.eggs/
+
+### --- Scientific Data & Results --- ###
+# Folders for simulation output and raw data
+results/
+data/
+# Specific binary/large data formats
+*.npy
+*.pkl
+*.dat
+*.csv
+*.ods
+*.h5
+*.vtu
+*.vtk
+
+### --- Graphics & Documentation --- ###
+# Ignore generated plots and papers
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.svg
+
+### --- Logging & Debugging --- ###
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+
+### --- System & IDEs --- ###
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
