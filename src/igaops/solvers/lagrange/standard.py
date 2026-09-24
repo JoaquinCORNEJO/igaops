@@ -19,8 +19,8 @@ class StandardLagrange(Template):
     """
 
     @property
-    def lagrange_type(self):
-        return "standard"
+    def is_penalty_necessary(self):
+        return False
 
     @property
     def kernel(self):
@@ -49,7 +49,9 @@ class StandardLagrange(Template):
             return self.kernel.T @ x
 
         res_lam = self._compute_dual_residual(solution)
-        delta_up = Helpers.lstsq(self.constraint_matrix, res_lam, is_transpose=False)
+        delta_up = Helpers.least_square(
+            self.constraint_matrix, res_lam, is_transpose=False
+        )
 
         def red_matvec(x_red: np.ndarray) -> np.ndarray:
             "Computes M x_red where M = (Z^T T Z)"
@@ -57,13 +59,13 @@ class StandardLagrange(Template):
             y = apply_T(x)
             return Zdot_T(y)
 
-        def red_preconditioner(x_red: np.ndarray) -> np.ndarray:
+        def red_preconditioner(rx_red: np.ndarray) -> np.ndarray:
             "Apply preconditioner for the standard method: Z^T P Z"
             if not callable(apply_P):
-                return x_red
+                return rx_red
             # NOTE: Z @ xred is equivalent to solve Z.T y = xred
             # since Z is orthogonal, ie, Z @ Z.T = Identity
-            y = Zdot(x_red)
+            y = Zdot(rx_red)
             w = apply_P(y)
             # NOTE: Z.T @ w is equivalent to solve Z out = w
             # since Z is orthogonal, ie, Z.T @ Z = Identity
@@ -77,7 +79,7 @@ class StandardLagrange(Template):
         delta_u = delta_up + delta_ug
 
         Tdug = apply_T(delta_ug)
-        delta_mult = Helpers.lstsq(
+        delta_mult = Helpers.least_square(
             self.constraint_matrix, rhs - Tdug, is_transpose=True
         )
 
@@ -171,7 +173,7 @@ class Helpers:
         return Z
 
     @staticmethod
-    def lstsq(
+    def least_square(
         M: Union[np.ndarray, sp.csr_array, LinearOperator],
         rhs: np.ndarray,
         is_transpose=False,
