@@ -1,4 +1,4 @@
-from typing import Callable, Union, Optional, Tuple, Any
+from typing import Callable, Union, Optional, Tuple, Any, List
 from abc import ABC, abstractmethod
 import logging
 
@@ -38,6 +38,8 @@ class Template(ABC):
         self._verbose = verbose
 
         # Private variable
+        self._local_solver: Optional[Any] = None
+        self._inner_residual: Optional[List[np.ndarray]] = None
         self._keep_warning: bool = True
 
     @property
@@ -115,7 +117,7 @@ class Template(ABC):
             New convergence tolerance
         maxiters : int, optional
             New maximum number of iterations
-        lagrange_penalty : Optional[float]
+        lagrange_penalty : float, optional
             New Lagrange penalty to be used in the augmented Lagrange multiplier method.
             If None, the penalty will not be updated.
         """
@@ -132,26 +134,29 @@ class Template(ABC):
 
         if not np.isscalar(lagrange_penalty):
             # If the penalty is not a scalar, we can skip the update
+            logger.warning("Skipped because Lagrange penalty is not scalar")
             return
+
+        if np.real(lagrange_penalty) < 0:
+            raise ValueError("Penalty cannot be negative")
 
         # Ensure the penalty is positive
-        penalty = float(np.abs(lagrange_penalty))
+        new_penalty = float(np.abs(lagrange_penalty))
 
-        if penalty <= 0.0:
-            logger.warning("Lagrange penalty should be positive.")
-            return
+        self._keep_warning = False
+        old_penalty = float(np.abs(self.lagrange_penalty))
+        self._keep_warning = True
 
         # To avoid unnecessary update, we only update if the penalty differs significantly from the current one
-        self._keep_warning = False
-        rel_diff = abs(self.lagrange_penalty - penalty) / (
-            abs(self.lagrange_penalty) + Constants.TINY
-        )
-        self._keep_warning = True
+        rel_diff = abs(old_penalty - new_penalty) / (old_penalty + Constants.TINY)
 
         # Update if it is not defined or the relative difference is greater than 5%
         if self._lagrange_penalty is None or rel_diff > 0.05:
-            logger.info("Lagrange penalty will be updated")
-            self._lagrange_penalty = penalty
+            logger.info(
+                f"Lagrange penalty is updated from {old_penalty:.2e} to {new_penalty:.2e}"
+            )
+            self._lagrange_penalty = new_penalty
+            self._local_solver = None
 
     @property
     @abstractmethod
@@ -165,6 +170,8 @@ class Template(ABC):
         apply_P: Optional[Callable],
         lagrange_res: np.ndarray,
         current_sol: np.ndarray,
+        apply_Ptrans: Optional[Callable] = None,
+        reuse: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Compute the increment according to the Lagrange method used.
@@ -175,10 +182,14 @@ class Template(ABC):
             The tangent matrix (in the sense of structural mechanics).
         apply_P : callable, optional
             A good preconditioner for matrix T.
+        apply_Ptrans : callable, optional
+            Transpose of apply_P.
         lagrange_res : ndarray
             The residual that includes constraints.
         current_sol : ndarray, optional
             Current solution vector, required for ALM method.
+        reuse : bool
+            If True it reuse information already computed (p.ex. for ALM solvers).
 
         Returns
         --------
