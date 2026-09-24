@@ -30,32 +30,16 @@ class StandardLagrange(Template):
             self._kernel = Helpers.compute_kernel(np.asarray(constraint_matrix))
         return self._kernel
 
-    def compute_increment_lag(
-        self,
-        apply_T: Callable,
-        apply_P: Optional[Callable],
-        lagrange_res: np.ndarray,
-        current_sol: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-
-        residual = lagrange_res.copy()
-        solution = current_sol.copy()
-
-        def Zdot(x):
-            y = self.kernel @ x
-            return y
-
-        def Zdot_T(x):
-            return self.kernel.T @ x
-
-        res_lam = self._compute_dual_residual(solution)
-        delta_up = Helpers.lstsq(self.constraint_matrix, res_lam, is_transpose=False)
+    def _solve_local_system(
+        self, apply_T: Callable, rhs: np.ndarray, apply_P: Optional[Callable]
+    ):
+        "Solve the system Z^T T Z"
 
         def red_matvec(x_red: np.ndarray) -> np.ndarray:
             "Computes M x_red where M = (Z^T T Z)"
-            x = Zdot(x_red)
+            x = self.kernel @ x_red
             y = apply_T(x)
-            return Zdot_T(y)
+            return self.kernel.T @ y
 
         def red_preconditioner(rx_red: np.ndarray) -> np.ndarray:
             "Apply preconditioner for the standard method: Z^T P Z"
@@ -63,17 +47,38 @@ class StandardLagrange(Template):
                 return rx_red
             # NOTE: Z @ xred is equivalent to solve Z.T y = xred
             # since Z is orthogonal, ie, Z @ Z.T = Identity
-            y = Zdot(rx_red)
+            y = self.kernel @ rx_red
             w = apply_P(y)
             # NOTE: Z.T @ w is equivalent to solve Z out = w
             # since Z is orthogonal, ie, Z.T @ Z = Identity
-            return Zdot_T(w)
+            return self.kernel.T @ w
+
+        return self._get_solution(red_matvec, rhs, red_preconditioner)
+
+    def compute_increment_lag(
+        self,
+        apply_T: Callable,
+        apply_P: Optional[Callable],
+        lagrange_res: np.ndarray,
+        current_sol: np.ndarray,
+        apply_Ptrans: Optional[Callable] = None,
+        reuse: bool = True,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+
+        # NOTE: Standard Lagrange solver does not require previous precomputations
+        # the keyword reuse is not neccesary but is kept to maintain syntaxis
+
+        residual = lagrange_res.copy()
+        solution = current_sol.copy()
+
+        res_lam = self._compute_dual_residual(solution)
+        delta_up = Helpers.lstsq(self.constraint_matrix, res_lam, is_transpose=False)
 
         rhs = residual - apply_T(delta_up)
-        rhs_red = Zdot_T(rhs)
+        rhs_red = self.kernel.T @ rhs
 
-        y = self._get_solution(red_matvec, rhs_red, red_preconditioner)
-        delta_ug = Zdot(y)
+        y = self._solve_local_system(apply_T, rhs_red, apply_P)
+        delta_ug = self.kernel @ y
         delta_u = delta_up + delta_ug
 
         Tdug = apply_T(delta_ug)

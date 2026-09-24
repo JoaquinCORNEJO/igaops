@@ -38,6 +38,7 @@ class Template(ABC):
         self._verbose = verbose
 
         # Private variable
+        self._local_solver: Optional[Any] = None
         self._keep_warning: bool = True
 
     @property
@@ -152,6 +153,7 @@ class Template(ABC):
         if self._lagrange_penalty is None or rel_diff > 0.05:
             logger.info("Lagrange penalty will be updated")
             self._lagrange_penalty = penalty
+            self._local_solver = None
 
     @property
     @abstractmethod
@@ -165,6 +167,8 @@ class Template(ABC):
         apply_P: Optional[Callable],
         lagrange_res: np.ndarray,
         current_sol: np.ndarray,
+        apply_Ptrans: Optional[Callable] = None,
+        reuse: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Compute the increment according to the Lagrange method used.
@@ -175,10 +179,14 @@ class Template(ABC):
             The tangent matrix (in the sense of structural mechanics).
         apply_P : callable, optional
             A good preconditioner for matrix T.
+        apply_Ptrans : callable, optional
+            Transpose of apply_P.
         lagrange_res : ndarray
             The residual that includes constraints.
         current_sol : ndarray, optional
             Current solution vector, required for ALM method.
+        reuse : bool
+            If True it reuse information already computed (p.ex. for ALM solvers).
 
         Returns
         --------
