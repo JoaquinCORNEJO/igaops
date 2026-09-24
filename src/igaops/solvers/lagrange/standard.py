@@ -19,8 +19,8 @@ class StandardLagrange(Template):
     """
 
     @property
-    def lagrange_type(self):
-        return "standard"
+    def is_penalty_necessary(self):
+        return False
 
     @property
     def kernel(self):
@@ -57,13 +57,13 @@ class StandardLagrange(Template):
             y = apply_T(x)
             return Zdot_T(y)
 
-        def red_preconditioner(x_red: np.ndarray) -> np.ndarray:
+        def red_preconditioner(rx_red: np.ndarray) -> np.ndarray:
             "Apply preconditioner for the standard method: Z^T P Z"
             if not callable(apply_P):
-                return x_red
+                return rx_red
             # NOTE: Z @ xred is equivalent to solve Z.T y = xred
             # since Z is orthogonal, ie, Z @ Z.T = Identity
-            y = Zdot(x_red)
+            y = Zdot(rx_red)
             w = apply_P(y)
             # NOTE: Z.T @ w is equivalent to solve Z out = w
             # since Z is orthogonal, ie, Z.T @ Z = Identity
