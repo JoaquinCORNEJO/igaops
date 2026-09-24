@@ -22,8 +22,8 @@ class AugmentedLagrange(Template):
     )
 
     @property
-    def lagrange_type(self):
-        return "augmented"
+    def is_penalty_necessary(self):
+        return True
 
     def _get_loose_solution(self, apply_M: Callable, x: np.ndarray, apply_P: Callable):
         return self.loose_solver.solve(apply_M, x, apply_P).solution
@@ -36,8 +36,6 @@ class AugmentedLagrange(Template):
         current_sol: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray]:
 
-        # NOTE: for the solver we do not use the dual constraint matrix.
-
         RHO = self.lagrange_penalty
         NR = len(self.constraint_vector)
         residual = lagrange_res.copy()
@@ -49,33 +47,30 @@ class AugmentedLagrange(Template):
             Tv = apply_T(x)
             Cv = self.constraint_matrix @ x
             CT_C_v = self.dual_matrix.T @ Cv
-            y = Tv + RHO * CT_C_v
-            return y
+            return Tv + RHO * CT_C_v
 
         def matvec_alm(z: np.ndarray) -> np.ndarray:
             "Computes y = [M11 x + C^T lam; C x]. Here z = (x, lam)"
             mvup = matvec_11(z[:-NR]) + self.dual_matrix.T @ z[-NR:]
             mvdw = self.constraint_matrix @ z[:-NR]
-            y = np.concatenate((np.asarray(mvup), np.asarray(mvdw)), axis=0)
-            return y
+            return np.hstack((mvup, mvdw))
 
-        def preconditioner_alm(x: np.ndarray) -> np.ndarray:
+        def preconditioner_alm(rz: np.ndarray) -> np.ndarray:
             """
             Apply a preconditioner for the ALM matrix: [M11, C^T; 0, -I/rho]
             Here M11 is solved with a loose tolerance using preconditioner P.
             """
             if not callable(apply_P):
-                return x
-            dlam = -RHO * x[-NR:]
-            rhs_u = x[:-NR] - self.dual_matrix.T @ dlam
-            y = np.zeros_like(x)
-            y[:-NR] = self._get_loose_solution(matvec_11, rhs_u, apply_P)
-            y[-NR:] = dlam
+                return rz
+
+            dlam = -RHO * rz[-NR:]
+            rhs_x = rz[:-NR] - self.dual_matrix.T @ dlam
+            dx = self._get_loose_solution(matvec_11, rhs_x, apply_P)
             inner_residual.append(self.loose_solver.last_simulation.residual)
-            return y
+            return np.hstack((dx, dlam))
 
         res_lam = self._compute_dual_residual(solution)
-        res = np.concatenate((residual, res_lam), axis=0)
+        res = np.hstack((residual, res_lam))
         delta = self._get_solution(matvec_alm, res, preconditioner_alm)
 
         if self.verbose:

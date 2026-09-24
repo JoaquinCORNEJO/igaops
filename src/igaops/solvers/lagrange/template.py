@@ -1,4 +1,4 @@
-from typing import Callable, Union, Optional, Literal, Tuple, Any
+from typing import Callable, Union, Optional, Tuple, Any
 from abc import ABC, abstractmethod
 import logging
 
@@ -126,7 +126,7 @@ class Template(ABC):
             kwargs["maxiters"] = maxiters
         self._config = SolverArgs(**kwargs)
 
-        if self.lagrange_type != "augmented":
+        if not self.is_penalty_necessary:
             # If the method is not augmented, we can skip the update
             return
 
@@ -155,7 +155,7 @@ class Template(ABC):
 
     @property
     @abstractmethod
-    def lagrange_type(self) -> Literal["augmented", "standard"]:
+    def is_penalty_necessary(self) -> bool:
         raise NotImplementedError("To implement in children")
 
     @abstractmethod
