@@ -5,7 +5,8 @@ from scipy import sparse as sp
 import numpy as np
 
 from igaops.common import validate_entry
-from .lagrange.augmented import AugmentedLagrange
+from .lagrange.augmented import AugmentedLagrange as ALM1
+from .lagrange.alm_testing import AugmentedLagrange as ALM2
 from .lagrange.standard import StandardLagrange
 
 array_like = Union[np.ndarray, sp.csr_array, LinearOperator]
@@ -84,8 +85,9 @@ class LagrangeSolver:
     """
 
     registry = {
-        "augmented": AugmentedLagrange,
+        "augmented": ALM1,
         "standard": StandardLagrange,
+        "testing": ALM2,
     }
 
     def __new__(
@@ -94,10 +96,10 @@ class LagrangeSolver:
         constraint_vector: np.ndarray,
         tolerance: float,
         maxiters: int,
-        lagrange_type: Literal["augmented", "standard"] = "augmented",
+        lagrange_type: Literal["augmented", "standard", "testing"] = "augmented",
         verbose: bool = True,
         dual_constraint_matrix: Optional[array_like] = None,
-    ) -> Union[AugmentedLagrange, StandardLagrange]:
+    ) -> Union[ALM1, ALM2, StandardLagrange]:
         validate_entry(lagrange_type, list(cls.registry.keys()))
         subclass = cls.registry[lagrange_type]
         return subclass(
