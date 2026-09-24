@@ -21,30 +21,62 @@ class AugmentedLagrange(ALM_Template):
         apply_Ptrans: Optional[Callable],
         reuse: bool,
     ):
-        "Solve the system A + rho C C^T"
+        """
+        Solve the system A_aug x = (A + rho B B^T) x = r_x as a linear system
+        [A      B  ][x] = [rx]
+        [B^T -I/rho][w]   [0 ]
+        The preconditioner to this new system is:
+        [I      0][P 0][I P^-1B^T]
+        [BP^-1  I][0 S][0    I   ]
+        where the Schur complement S = -(I/rho + B P^-1 B^T)
+        """
+
+        RHO = self.lagrange_penalty
+        NR = len(self.constraint_vector)
 
         if (not reuse or self._local_solver is None) and apply_P is not None:
             self._set_local_solver(apply_P, apply_Ptrans)
 
-        def matvec(x: np.ndarray) -> np.ndarray:
-            "Computes M11 x where M11 = (T + rho * C^T C)"
-            CT_C_x = self.dual_matrix.T @ self.constraint_matrix @ x
-            return apply_T(x) + self.lagrange_penalty * CT_C_x
+        def Hmatvec(xw: np.ndarray):
+            "Computes matvec product with H = [A, B^T; B, -I/rho]"
+            x = xw[:-NR]
+            w = xw[-NR:]
+            mvup = apply_T(x) + self.dual_matrix.T @ w
+            mvdw = self.constraint_matrix @ x - w / RHO
+            return np.hstack((mvup, mvdw))
 
-        def preconditioner(x: np.ndarray):
+        def Hprecond(rxw: np.ndarray):
+            """
+            Computes the matvec product with
+            P = [I, 0; BP^-1, I][P, 0; 0, S][I, P^-1B^T; 0, I].
+            Here S is the Schur complement of H:
+            S = -I/rho - B P^-1 B^T.
+            """
             if not callable(apply_P):
-                return x
+                return rxw
 
-            zz = apply_P(x)
-            ss = np.asarray(self.constraint_matrix @ zz)
-            ww = self._get_tight_solution(
-                self.local_solver.matvec, ss, self.local_solver.preconditioner
+            rx = rxw[:-NR]
+            rw = rxw[-NR:]
+
+            # Solve [I, 0; BP^-1, I]
+            dx1 = rx
+            P_dx1 = apply_P(dx1)
+            dw1 = rw - self.constraint_matrix @ P_dx1
+
+            # Solve [P, 0; 0, S]
+            dx2 = P_dx1
+            dw2 = -self._get_tight_solution(
+                self.local_solver.matvec, dw1, self.local_solver.preconditioner
             )
-            tt = np.asarray(self.dual_matrix.T @ ww)
-            uu = zz - apply_P(tt)
-            return uu
 
-        return self._get_loose_solution(matvec, rhs, preconditioner)
+            # Solve [I, P^-1B^T; 0, I]
+            dw = dw2
+            dx = dx2 - apply_P(self.dual_matrix.T @ dw)
+
+            return np.hstack((dx, dw))
+
+        new_rhs = np.hstack((rhs, np.zeros(NR)))
+        return self._get_loose_solution(Hmatvec, new_rhs, Hprecond)[:-NR]
 
     def compute_increment_lag(
         self,
