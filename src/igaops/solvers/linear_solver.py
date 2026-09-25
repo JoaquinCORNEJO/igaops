@@ -3,9 +3,9 @@ from dataclasses import dataclass
 from time import time
 import logging
 
-from scipy.sparse.linalg import LinearOperator, spsolve
+from scipy.sparse.linalg import LinearOperator, spsolve, lsqr
 from scipy import sparse as sp
-from numpy.linalg import norm, lstsq
+from numpy.linalg import norm
 import numpy as np
 
 from igaops.common import Constants, validate_entry
@@ -498,7 +498,7 @@ class LinearSolver:
             rhs = np.zeros(it + 1)
             rhs[0] = norm_0
 
-            y = lstsq(mat, rhs, rcond=None)[0]
+            y = lsqr(mat, rhs, atol=Constants.TINY, btol=Constants.TINY)[0]
             xold = x.copy()
             x = PVectors[: len(y)].T @ y
             incr = x - xold
@@ -559,7 +559,7 @@ class LinearSolver:
             Ap = np.asarray(Afun(p))
             PtAp = p.T @ Ap
             PtR = p.T @ r
-            gamma = lstsq(PtAp, PtR, rcond=None)[0]
+            gamma = lsqr(PtAp, PtR, atol=Constants.TINY, btol=Constants.TINY)[0]
 
             r -= Ap @ gamma
             incr = p @ gamma
@@ -580,7 +580,7 @@ class LinearSolver:
 
             z = np.asarray(Pfun(r))
             rtz_new = r.T @ z
-            delta = lstsq(rtz_old, rtz_new, rcond=None)[0]
+            delta = lsqr(rtz_old, rtz_new, atol=Constants.TINY, btol=Constants.TINY)[0]
             p = z + p @ delta
             rtz_old = rtz_new
         else:
