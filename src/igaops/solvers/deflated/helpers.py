@@ -1,5 +1,6 @@
 from typing import Callable
 
+from scipy.sparse.linalg import lsqr
 from scipy import linalg as sclin
 import numpy as np
 
@@ -62,7 +63,7 @@ def gmres1(
         mat = H[: k + 1, :k]
         rhs = np.zeros(k + 1, dtype=dtype)
         rhs[0] = beta
-        y = np.linalg.lstsq(mat, rhs, rcond=None)[0]
+        y = lsqr(mat, rhs, atol=Constants.TINY, btol=Constants.TINY)[0]
         res = rhs - mat @ y
         resvec[k - 1] = np.linalg.norm(res)
 
@@ -137,7 +138,7 @@ def gmres2(
         mat = H[: k + 1, :k]
         rhs = np.zeros(k + 1, dtype=dtype)
         rhs[0] = beta
-        y = np.linalg.lstsq(mat, rhs, rcond=None)[0]
+        y = lsqr(mat, rhs, atol=Constants.TINY, btol=Constants.TINY)[0]
         res = rhs - mat @ y
         resvec[k - 1] = np.linalg.norm(res)
         if resvec[k - 1] < tol:

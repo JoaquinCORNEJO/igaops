@@ -2,6 +2,8 @@ from typing import Optional, Callable, Dict, Any
 from dataclasses import dataclass
 import logging
 
+from scipy.linalg import solve_triangular
+from scipy.sparse.linalg import lsqr
 from numpy.linalg import norm
 import numpy as np
 
@@ -267,7 +269,7 @@ class GCRODR:
             )
             # Orthonormalise C; adjust U so C = A U still holds: Q = A (U/R)
             C, R = np.linalg.qr(C, mode="reduced")
-            U = Y @ np.linalg.pinv(R)
+            U = solve_triangular(R.T, Y.T, lower=True).T
 
             Cr = C.conj().T.dot(r)
             x += U @ Cr
@@ -288,7 +290,7 @@ class GCRODR:
                 Y = V[:p].T @ P
                 Q, R = np.linalg.qr(H[: p + 1, :p] @ P, mode="reduced")
                 C = V[: p + 1].T @ Q  # lift back to full space
-                U = Y @ np.linalg.pinv(R)
+                U = solve_triangular(R.T, Y.T, lower=True).T
 
         logger.info(f"GCRODR with {currcase}.")
         self.convergence_manager.update(
@@ -309,6 +311,7 @@ class GCRODR:
         if U is None or C is None:
             raise RuntimeError("U and/or C are not initialized.")
 
+        tol = Constants.SAFEGUARD
         currcycle = 0
         for currcycle in range(max_cycles):
             V, H_inner, B, p, rv = gmres2(
@@ -337,7 +340,7 @@ class GCRODR:
 
             # Solve minimization problem
             rhs = What.conj().T.dot(r)  # (p+k+1,)
-            y = np.linalg.lstsq(Gbar, rhs, rcond=None)[0]
+            y = lsqr(Gbar, rhs, atol=tol, btol=tol)[0]
 
             # Update solution and residual
             x += Vhat @ y
@@ -359,7 +362,7 @@ class GCRODR:
             Y = Vhat @ P
             Q, R = np.linalg.qr(Gbar @ P, mode="reduced")
             C = What @ Q
-            U = Y @ np.linalg.pinv(R)
+            U = solve_triangular(R.T, Y.T, lower=True).T
 
         else:
             output.success = False

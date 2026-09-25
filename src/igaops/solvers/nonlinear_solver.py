@@ -4,6 +4,7 @@ from time import time
 import logging
 
 import numpy as np
+from scipy.sparse.linalg import lsqr
 
 from igaops.common import Constants
 from .utils.argsclass import SolverArgs
@@ -222,7 +223,7 @@ class NonLinearSolver:
         g_k = incr_hist[m]
 
         # Solve least squares problem: min ||G * gamma - g_k||
-        alpha = np.linalg.lstsq(G, g_k, rcond=None)[0]
+        alpha = lsqr(G, g_k, atol=Constants.TINY, btol=Constants.TINY)[0]
 
         if np.linalg.norm(alpha) > Constants.HUGE:
             # Value too high fallback to fixed point
