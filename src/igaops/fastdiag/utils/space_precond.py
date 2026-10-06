@@ -228,6 +228,9 @@ class SpaceFD(Template):
                 * np.ones_like(eigenvalues_mixed)
                 + scalar_coefs[1] * eigenvalues_mixed
             )
+            current_eig = np.maximum(
+                current_eig, Constants.SAFEGUARD * np.max(current_eig)
+            )
             space_eigenvalues.append(current_eig)
         self._space_scalar_coefs = (float(scalar_coefs[0]), float(scalar_coefs[1]))
         return space_eigenvalues
@@ -296,12 +299,7 @@ class SpaceFD(Template):
                 array_to_apply,
                 is_transpose=True,
             )
-            eigenvalues = self.space_eigenvalues[ii].copy()
-            if np.any(eigenvalues <= Constants.TINY):
-                # Apply regularization
-                logger.warning("Apply regularization")
-                eigenvalues += Constants.TINY * np.max(eigenvalues)
-            inv_eigenvalues = 1.0 / eigenvalues
+            inv_eigenvalues = 1.0 / self.space_eigenvalues[ii]
             array = np.einsum("i,i...->i...", inv_eigenvalues, array, optimize=True)
             array_out[ii][self.space_free_nodes[ii]] = MatrixFree.apply(
                 self.eigenvec_by_dir_space[ii], array, is_transpose=False
