@@ -5,7 +5,6 @@ import logging
 from scipy import linalg as sclin
 import numpy as np
 
-from igaops.common import Constants
 from igaops.operators import MatrixFree
 from .operations import solve_special_arrowhead, compute_special_schur
 from .time_template import SpTmFDTemplate
@@ -89,13 +88,8 @@ class SpTimeFD(SpTmFDTemplate):
         H_list: List[np.ndarray] = []
         schur_list: List[np.ndarray] = []
         for ii in range(self.nbDoFsPerNode):
-            eigenvalues = space_eigvals[ii].copy()
-            if np.any(eigenvalues <= Constants.TINY):
-                # Apply regularization
-                logger.warning("Apply regularization")
-                eigenvalues += Constants.TINY * np.max(eigenvalues)
             bfac = adv_corr[ii] * g
-            H = np.add.outer(adv_corr[ii] * Dt, eigenvalues)
+            H = np.add.outer(adv_corr[ii] * Dt, space_eigvals[ii])
             S = compute_special_schur(H, bfac)
             bfac_list.append(bfac)
             H_list.append(H)

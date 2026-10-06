@@ -2,6 +2,7 @@ from typing import Optional, Callable, Dict, Any
 from dataclasses import dataclass
 import logging
 
+from scipy.linalg import solve_triangular
 from numpy.linalg import norm
 import numpy as np
 
@@ -267,7 +268,7 @@ class GCRODR:
             )
             # Orthonormalise C; adjust U so C = A U still holds: Q = A (U/R)
             C, R = np.linalg.qr(C, mode="reduced")
-            U = Y @ np.linalg.pinv(R)
+            U = solve_triangular(R.T, Y.T, lower=True).T
 
             Cr = C.conj().T.dot(r)
             x += U @ Cr
@@ -288,7 +289,7 @@ class GCRODR:
                 Y = V[:p].T @ P
                 Q, R = np.linalg.qr(H[: p + 1, :p] @ P, mode="reduced")
                 C = V[: p + 1].T @ Q  # lift back to full space
-                U = Y @ np.linalg.pinv(R)
+                U = solve_triangular(R.T, Y.T, lower=True).T
 
         logger.info(f"GCRODR with {currcase}.")
         self.convergence_manager.update(
@@ -359,7 +360,7 @@ class GCRODR:
             Y = Vhat @ P
             Q, R = np.linalg.qr(Gbar @ P, mode="reduced")
             C = What @ Q
-            U = Y @ np.linalg.pinv(R)
+            U = solve_triangular(R.T, Y.T, lower=True).T
 
         else:
             output.success = False
