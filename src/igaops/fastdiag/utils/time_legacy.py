@@ -5,7 +5,7 @@ import logging
 from scipy import linalg as sclin
 import numpy as np
 
-from igaops.common import ParametricDirection, Constants
+from igaops.common import ParametricDirection
 from igaops.operators import MatrixFree
 from .time_template import SpTmFDTemplate
 from .space_precond import SpaceFD
@@ -83,14 +83,9 @@ class SpTimeFD(SpTmFDTemplate):
             array1_reshape = np.reshape(array1, (-1, nnz_time, *tail_shape), order="F")
             array2_reshape = np.zeros_like(array1_reshape)
 
-            eigenvalues = self.space_fd.space_eigenvalues[ii].copy()
-            if np.any(eigenvalues <= Constants.TINY):
-                # Apply regularization
-                logger.warning("Apply regularization")
-                eigenvalues += Constants.TINY * np.max(eigenvalues)
-
             # FIXME: Could we apply multi-threading here since we have
             # to solve many independent triangular systems?
+            eigenvalues = self.space_fd.space_eigenvalues[ii]
             for idx, row in enumerate(array1_reshape):
                 mat = adv_corr[ii] * self.schur_adv + eigenvalues[idx] * self.schur_mass
                 array2_reshape[idx] = sclin.solve_triangular(mat, row, lower=False)
@@ -134,14 +129,9 @@ class SpTimeFD(SpTmFDTemplate):
             array1_reshape = np.reshape(array1, (-1, nnz_time, *tail_shape), order="F")
             array2_reshape = np.zeros_like(array1_reshape)
 
-            eigenvalues = self.space_fd.space_eigenvalues[ii].copy()
-            if np.any(eigenvalues <= Constants.TINY):
-                # Apply regularization
-                logger.warning("Apply regularization")
-                eigenvalues += Constants.TINY * np.max(eigenvalues)
-
             # FIXME: Could we apply multi-threading here since we have
             # to solve many independent triangular systems?
+            eigenvalues = self.space_fd.space_eigenvalues[ii]
             for idx, row in enumerate(array1_reshape):
                 mat = (
                     adv_corr[ii] * self.schur_adv.T
