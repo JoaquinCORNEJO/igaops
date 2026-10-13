@@ -190,17 +190,114 @@ class NurbsOperations(Template):
     def assemble_scalar_u_v(
         quadrule_list: Sequence[QuadratureRule],
         coefficients: np.ndarray,
+        time_ders: Optional[Sequence[int]] = None,
         nurbs_weights: np.ndarray = np.array([]),
-    ):
-        raise NotImplementedError("Not implemented")
+    ) -> sp.csr_array:
+        w_proj = _Helpers.project_nurbs_weights(
+            [q.basis for q in quadrule_list], nurbs_weights, nders=0
+        )[0]
+        coefficients_copy = _Helpers.apply_scaling(
+            coefficients, w_proj**2, left_depth=0
+        )
+        matrix = BsplineOperations.assemble_scalar_u_v(
+            quadrule_list, coefficients_copy, time_ders
+        )
+        diags = sp.diags(nurbs_weights)
+        return sp.csr_array(diags @ matrix @ diags)
 
     @staticmethod
     def assemble_scalar_gradu_gradv(
         quadrule_list: Sequence[QuadratureRule],
         coefficients: np.ndarray,
+        time_ders: Optional[Sequence[int]] = None,
         nurbs_weights: np.ndarray = np.array([]),
-    ):
-        raise NotImplementedError("Not implemented")
+    ) -> sp.csr_array:
+        w_proj, z_proj, _ = _Helpers.project_nurbs_weights(
+            [q.basis for q in quadrule_list], nurbs_weights, nders=1
+        )
+        # First term
+        coefficients_copy = _Helpers.apply_scaling(
+            coefficients, w_proj**2, left_depth=2
+        )
+        matrix = BsplineOperations.assemble_scalar_gradu_gradv(
+            quadrule_list, coefficients_copy, time_ders
+        )
+        # Second term
+        coefficients_copy = np.einsum(
+            "ij...,i...,j...->...", coefficients, z_proj, z_proj, optimize=True
+        )
+        matrix += BsplineOperations.assemble_scalar_u_v(
+            quadrule_list, coefficients_copy, time_ders
+        )
+        # Third term
+        coefficients_copy = np.einsum(
+            "ij...,i...,...->j...", coefficients, z_proj, w_proj, optimize=True
+        )
+        matrix -= BsplineOperations.assemble_scalar_u_gradv(
+            quadrule_list, coefficients_copy, time_ders
+        )
+        # Fourth term
+        coefficients_copy = np.einsum(
+            "ij...,j...,...->i...", coefficients, z_proj, w_proj, optimize=True
+        )
+        matrix -= BsplineOperations.assemble_scalar_gradu_v(
+            quadrule_list, coefficients_copy, time_ders
+        )
+        diags = sp.diags(nurbs_weights)
+        return sp.csr_array(diags @ matrix @ diags)
+
+    @staticmethod
+    def _assemble_scalar_gradu_v_or_u_grad_v(
+        quadrule_list: Sequence[QuadratureRule],
+        coefficients: np.ndarray,
+        time_ders: Optional[Sequence[int]] = None,
+        nurbs_weights: np.ndarray = np.array([]),
+        mf_type: Literal["gradu_v", "u_gradv"] = "gradu_v",
+    ) -> sp.csr_array:
+        w_proj, z_proj, _ = _Helpers.project_nurbs_weights(
+            [q.basis for q in quadrule_list], nurbs_weights, nders=1
+        )
+        oper = (
+            BsplineOperations.assemble_scalar_gradu_v
+            if mf_type == "gradu_v"
+            else BsplineOperations.assemble_scalar_u_gradv
+        )
+        # First term
+        coefficients_copy = _Helpers.apply_scaling(
+            coefficients, w_proj**2, left_depth=1
+        )
+        matrix = oper(quadrule_list, coefficients_copy, time_ders)
+        # Second term
+        coefficients_copy = np.einsum(
+            "i...,i...,...->...", coefficients, z_proj, w_proj, optimize=True
+        )
+        matrix -= BsplineOperations.assemble_scalar_u_v(
+            quadrule_list, coefficients_copy, time_ders
+        )
+        diags = sp.diags(nurbs_weights)
+        return sp.csr_array(diags @ matrix @ diags)
+
+    @staticmethod
+    def assemble_scalar_gradu_v(
+        quadrule_list: Sequence[QuadratureRule],
+        coefficients: np.ndarray,
+        time_ders: Optional[Sequence[int]] = None,
+        nurbs_weights: np.ndarray = np.array([]),
+    ) -> sp.csr_array:
+        return NurbsOperations._assemble_scalar_gradu_v_or_u_grad_v(
+            quadrule_list, coefficients, time_ders, nurbs_weights, mf_type="gradu_v"
+        )
+
+    @staticmethod
+    def assemble_scalar_u_gradv(
+        quadrule_list: Sequence[QuadratureRule],
+        coefficients: np.ndarray,
+        time_ders: Optional[Sequence[int]] = None,
+        nurbs_weights: np.ndarray = np.array([]),
+    ) -> sp.csr_array:
+        return NurbsOperations._assemble_scalar_gradu_v_or_u_grad_v(
+            quadrule_list, coefficients, time_ders, nurbs_weights, mf_type="u_gradv"
+        )
 
     @staticmethod
     def assemble_scalar_u_force(

@@ -140,7 +140,9 @@ class EvaluatedPatch(ProjectionMixin, EvaluatedSpline):
         return instance
 
     def get_data_on_boundary(
-        self, localization: Tuple[ParametricDirection, BoundarySide]
+        self,
+        localization: Tuple[ParametricDirection, BoundarySide],
+        quadrature_class: Literal["gauss", "weighted"] = "gauss",
     ) -> "EvaluatedPatch":
         """
         Computes geometric data on a boundary surface for projection purposes.
@@ -155,19 +157,32 @@ class EvaluatedPatch(ProjectionMixin, EvaluatedSpline):
         ----------
         localization : Tuple[ParametricDirection, BoundarySide]
             Parametric direction and boundary side.
+        quadrature_class : {"gauss", "weighted"}
+            Quadrature class on boundary.
         """
 
         def get_quadrature_for_boundary(
             obj: SingleSpline,
             localization: Tuple[ParametricDirection, BoundarySide],
+            quadrature_class: Literal["gauss", "weighted"],
         ) -> List[QuadratureRule]:
             quadrules = []
             for ii in range(obj.ndim):
                 if ParametricDirection(ii) == localization[0]:
                     continue
-                q = StandardGauss(
-                    obj.degree[ii], obj.knotvector[ii], quadtype="legendre"
-                )
+                if quadrature_class == "gauss":
+                    q = StandardGauss(
+                        obj.degree[ii], obj.knotvector[ii], quadtype="legendre"
+                    )
+                elif quadrature_class == "weighted":
+                    q = WeightedQuadrature(
+                        obj.degree[ii],
+                        obj.knotvector[ii],
+                        quadtype="2",
+                        position_rule="cellcenter",
+                    )
+                else:
+                    raise ValueError("Quadratura rule can only be Gauss or Weighted")
                 quadrules.append(q)
             return quadrules
 
@@ -181,7 +196,7 @@ class EvaluatedPatch(ProjectionMixin, EvaluatedSpline):
         )
 
         # Get quadrature on boundary
-        quadrules = get_quadrature_for_boundary(self, localization)
+        quadrules = get_quadrature_for_boundary(self, localization, quadrature_class)
 
         # Mapping: jacobian and determinant
         single_spline = SingleSpline(

@@ -129,6 +129,7 @@ class Template(ABC):
     def assemble_scalar_u_v(
         quadrule_list: Sequence[QuadratureRule],
         coefficients: np.ndarray,
+        time_ders: Optional[Sequence[int]] = None,
         nurbs_weights: np.ndarray = np.array([]),
     ) -> sp.csr_array:
         """
@@ -144,6 +145,9 @@ class Template(ABC):
             List of quadrature rules to build the basis functions and to compute the integral.
         coefficients : ndarray
             Contains geometry and material properties. It is a 0-rank tensor (or scalar) field.
+        time_ders : Sequence[int]
+            Tuple of size 2, the first element sets the derivative of N_A,
+            the second elements sets the derivative of N_B.
         nurbs_weights : ndarray
             The weights of the B-spline basis to compute the NURBS basis.
 
@@ -158,6 +162,7 @@ class Template(ABC):
     def assemble_scalar_gradu_gradv(
         quadrule_list: Sequence[QuadratureRule],
         coefficients: np.ndarray,
+        time_ders: Optional[Sequence[int]] = None,
         nurbs_weights: np.ndarray = np.array([]),
     ) -> sp.csr_array:
         """
@@ -173,6 +178,9 @@ class Template(ABC):
             List of quadrature rules to build the basis functions and to compute the integral.
         coefficients : ndarray
             Contains geometry and material properties. It is a 2-rank tensor field.
+        time_ders : Sequence[int]
+            Tuple of size 2, the first element sets the derivative of N_A,
+            the second elements sets the derivative of N_B.
         nurbs_weights : ndarray
             The weights of the B-spline basis to compute the NURBS basis.
 
@@ -180,6 +188,72 @@ class Template(ABC):
         ------
         This function is not optimize since it computes the kron product directly and
         don't use matrix-free algorithms. Avoid using it if possible.
+        """
+        raise NotImplementedError("To implement in children")
+
+    @staticmethod
+    @abstractmethod
+    def assemble_scalar_u_gradv(
+        quadrule_list: Sequence[QuadratureRule],
+        coefficients: np.ndarray,
+        time_ders: Optional[Sequence[int]] = None,
+        nurbs_weights: np.ndarray = np.array([]),
+    ) -> sp.csr_array:
+        """
+        Assembles the matrix M (also called advection matrix transposed)
+
+        It results from
+        'int N_A(x) [c(x) . grad(N_B(x))] dx' <- in the hypercube [0, 1]^d
+        where N_A and N_B are basis functions in the same parametric space.
+
+        Parameters
+        ----------
+        quadrule_list : List[QuadratureRule]
+            List of quadrature rules to build the basis functions and to compute the integral.
+        coefficients : ndarray
+            Contains geometry and material properties. It is a 0-rank tensor (or scalar) field.
+        time_ders : Sequence[int]
+            Tuple of size 2, the first element sets the derivative of N_A,
+            the second elements sets the derivative of N_B.
+        nurbs_weights : ndarray
+            The weights of the B-spline basis to compute the NURBS basis.
+
+        Notes:
+        ------
+        This function is not optimize since it uses python loops. Avoid using it if possible.
+        """
+        raise NotImplementedError("To implement in children")
+
+    @staticmethod
+    @abstractmethod
+    def assemble_scalar_gradu_v(
+        quadrule_list: Sequence[QuadratureRule],
+        coefficients: np.ndarray,
+        time_ders: Optional[Sequence[int]] = None,
+        nurbs_weights: np.ndarray = np.array([]),
+    ) -> sp.csr_array:
+        """
+        Assembles the matrix M (also called advection matrix)
+
+        It results from
+        'int [grad(N_A(x)) . c(x)] . N_B(x) dx' <- in the hypercube [0, 1]^d
+        where N_A and N_B are basis functions in the same parametric space.
+
+        Parameters
+        ----------
+        quadrule_list : List[QuadratureRule]
+            List of quadrature rules to build the basis functions and to compute the integral.
+        coefficients : ndarray
+            Contains geometry and material properties. It is a 0-rank tensor (or scalar) field.
+        time_ders : Sequence[int]
+            Tuple of size 2, the first element sets the derivative of N_A,
+            the second elements sets the derivative of N_B.
+        nurbs_weights : ndarray
+            The weights of the B-spline basis to compute the NURBS basis.
+
+        Notes:
+        ------
+        This function is not optimize since it uses python loops. Avoid using it if possible.
         """
         raise NotImplementedError("To implement in children")
 
@@ -251,7 +325,7 @@ class Template(ABC):
         'int N_A(x) c(x) N_B(x) dx' <- in the hypercube [0, 1]^d
         where N_A and N_B are basis functions in the same parametric space.
 
-        To generalize the method, basis funcitons may also include time deirvatives
+        To generalize the method, basis functions may also include time deirvatives
         N_A(x, t) = N^p_t(t) x N_1(x_1) x N_2(x_2) x ... x N_d(x_d)
         if p = 0, there is no derivative, p = 1, it has been derived once, and so on.
 
@@ -287,7 +361,7 @@ class Template(ABC):
         'int grad(N_A(x)) [c(x) . grad(N_B(x))] dx' <- in the hypercube [0, 1]^d.
         where N_A and N_B are basis functions in the same parametric space.
 
-        To generalize the method, basis funcitons may also include time deirvatives
+        To generalize the method, basis functions may also include time deirvatives
         N_A(x, t) = N^p_t(t) x N_1(x_1) x N_2(x_2) x ... x N_d(x_d).
         If p = 0, there is no derivative, p = 1, it has been derived once, and so on.
 
@@ -323,7 +397,7 @@ class Template(ABC):
         'int [grad(N_A(x)) . c(x)] . N_B(x) dx' <- in the hypercube [0, 1]^d
         where N_A and N_B are basis functions in the same parametric space.
 
-        To generalize the method, basis funcitons may also include time deirvatives
+        To generalize the method, basis functions may also include time deirvatives
         N_A(x, t) = N^p_t(t) x N_1(x_1) x N_2(x_2) x ... x N_d(x_d)
         if p = 0, there is no derivative, p = 1, it has been derived once, and so on.
 
@@ -359,7 +433,7 @@ class Template(ABC):
         'int N_A(x) [c(x) . grad(N_B(x))] dx' <- in the hypercube [0, 1]^d
         where N_A and N_B are basis functions in the same parametric space.
 
-        To generalize the method, basis funcitons may also include time deirvatives
+        To generalize the method, basis functions may also include time deirvatives
         N_A(x, t) = N^p_t(t) x N_1(x_1) x N_2(x_2) x ... x N_d(x_d)
         if p = 0, there is no derivative, p = 1, it has been derived once, and so on.
 
