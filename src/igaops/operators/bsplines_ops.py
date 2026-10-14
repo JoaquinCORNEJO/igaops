@@ -139,13 +139,20 @@ class BsplineOperations(Template):
     def assemble_scalar_u_v(
         quadrule_list: Sequence[QuadratureRule],
         coefficients: np.ndarray,
+        time_ders: Optional[Sequence[int]] = None,
         nurbs_weights: np.ndarray = np.array([]),
     ) -> sp.csr_array:
+        enable_spacetime = time_ders is not None
         ndim = len(quadrule_list)
         zero_list = np.zeros(ndim, dtype=int).tolist()
+        if enable_spacetime:
+            zero_list[-1] = time_ders[1]
         basis = _Helpers.build_matrix_list(
             quadrule_list, zero_list, product_type="basis"
         )
+        zero_list = np.zeros(ndim, dtype=int).tolist()
+        if enable_spacetime:
+            zero_list[-1] = time_ders[0]
         weights = _Helpers.build_matrix_list(
             quadrule_list, zero_list, product_type="weights"
         )
@@ -155,20 +162,26 @@ class BsplineOperations(Template):
     def assemble_scalar_gradu_gradv(
         quadrule_list: Sequence[QuadratureRule],
         coefficients: np.ndarray,
+        time_ders: Optional[Sequence[int]] = None,
         nurbs_weights: np.ndarray = np.array([]),
     ) -> sp.csr_array:
+        enable_spacetime = time_ders is not None
         ndim = len(quadrule_list)
         nr_list = _Helpers.get_nbofrows(quadrule_list)
         matrix = sp.csr_array((np.prod(nr_list), np.prod(nr_list)))
         for j in range(ndim):
             beta_list = np.zeros(ndim, dtype=int)
             beta_list[j] = 1
+            if enable_spacetime:
+                beta_list[-1] = time_ders[1]
             basis = _Helpers.build_matrix_list(
                 quadrule_list, beta_list.tolist(), "basis"
             )
             for i in range(ndim):
                 alpha_list = np.zeros(ndim, dtype=int)
                 alpha_list[i] = 1
+                if enable_spacetime:
+                    alpha_list[-1] = time_ders[0]
                 zeta_list = beta_list + 2 * alpha_list
                 weights = _Helpers.build_matrix_list(
                     quadrule_list, zeta_list.tolist(), "weights"
@@ -176,6 +189,64 @@ class BsplineOperations(Template):
                 matrix += Operations.sumfact_assembling(
                     weights, basis, coefficients[i][j]
                 )
+        return matrix
+
+    @staticmethod
+    def assemble_scalar_gradu_v(
+        quadrule_list: Sequence[QuadratureRule],
+        coefficients: np.ndarray,
+        time_ders: Optional[Sequence[int]] = None,
+        nurbs_weights: np.ndarray = np.array([]),
+    ) -> sp.csr_array:
+        enable_spacetime = time_ders is not None
+        ndim = len(quadrule_list)
+        nr_list = _Helpers.get_nbofrows(quadrule_list)
+        matrix = sp.csr_array((np.prod(nr_list), np.prod(nr_list)))
+
+        beta_list = np.zeros(ndim, dtype=int)
+        if enable_spacetime:
+            beta_list[-1] = time_ders[1]
+        basis = _Helpers.build_matrix_list(quadrule_list, beta_list.tolist(), "basis")
+        for i in range(ndim):
+            alpha_list = np.zeros(ndim, dtype=int)
+            alpha_list[i] = 1
+            if enable_spacetime:
+                alpha_list[-1] = time_ders[0]
+            zeta_list = beta_list + 2 * alpha_list
+            weights = _Helpers.build_matrix_list(
+                quadrule_list, zeta_list.tolist(), "weights"
+            )
+            matrix += Operations.sumfact_assembling(weights, basis, coefficients[i])
+        return matrix
+
+    @staticmethod
+    def assemble_scalar_u_gradv(
+        quadrule_list: Sequence[QuadratureRule],
+        coefficients: np.ndarray,
+        time_ders: Optional[Sequence[int]] = None,
+        nurbs_weights: np.ndarray = np.array([]),
+    ) -> sp.csr_array:
+        enable_spacetime = time_ders is not None
+        ndim = len(quadrule_list)
+        nr_list = _Helpers.get_nbofrows(quadrule_list)
+        matrix = sp.csr_array((np.prod(nr_list), np.prod(nr_list)))
+
+        for j in range(ndim):
+            beta_list = np.zeros(ndim, dtype=int)
+            beta_list[j] = 1
+            if enable_spacetime:
+                beta_list[-1] = time_ders[1]
+            basis = _Helpers.build_matrix_list(
+                quadrule_list, beta_list.tolist(), "basis"
+            )
+            alpha_list = np.zeros(ndim, dtype=int)
+            if enable_spacetime:
+                alpha_list[-1] = time_ders[0]
+            zeta_list = beta_list + 2 * alpha_list
+            weights = _Helpers.build_matrix_list(
+                quadrule_list, zeta_list.tolist(), "weights"
+            )
+            matrix += Operations.sumfact_assembling(weights, basis, coefficients[j])
         return matrix
 
     @staticmethod
@@ -224,7 +295,6 @@ class BsplineOperations(Template):
         time_ders: Optional[Sequence[int]] = None,
         nurbs_weights: np.ndarray = np.array([]),
     ) -> np.ndarray:
-
         enable_spacetime = time_ders is not None
         ndim = len(quadrule_list)
         zero_list = np.zeros(ndim, dtype=int)
