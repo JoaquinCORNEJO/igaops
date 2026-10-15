@@ -1,20 +1,31 @@
-from typing import List, Any
+from typing import List, Any, Tuple
 from abc import ABC, abstractmethod
 
 from scipy import sparse as sp
+from geomdl import helpers
 import numpy as np
 
 from .operations import Operations
 
 
 class Template(ABC):
-    def __init__(self, degree: int, knotvector: np.ndarray):
+    def __init__(
+        self,
+        degree: int,
+        knotvector: np.ndarray,
+        parametric_space: Tuple[float, float] = (0, 1),
+    ):
         # Public variables that need to be checked
         self.degree = degree
         self.knotvector = knotvector
 
         # Public variables that are fixed
-        self._unique_kv = np.unique(np.clip(self.knotvector, a_min=0, a_max=1))
+        self._unique_kv = np.unique(
+            np.clip(
+                self.knotvector, a_min=parametric_space[0], a_max=parametric_space[1]
+            )
+        )
+        self._parametric_space = (parametric_space[0], parametric_space[1])
         self._nbctrlpts = len(self.knotvector) - self.degree - 1
 
         # Public variables that may vary
@@ -41,6 +52,10 @@ class Template(ABC):
     @knotvector.setter
     def knotvector(self, value):
         self._knotvector = np.asarray(value).astype(float)
+
+    @property
+    def parametric_space(self):
+        return self._parametric_space
 
     @property
     def unique_kv(self):
@@ -108,6 +123,14 @@ class Template(ABC):
     def _generate(self):
         "Initializes the quadrature class"
         raise NotImplementedError("To implement in children")
+
+    def eval_minimal_continuity(self):
+        "Evaluates the minimal continuity overall (across elements)"
+        continuity = self.degree - 1
+        for knot in self.unique_kv[1:-1]:
+            m = helpers.find_multiplicity(knot, self.knotvector)
+            continuity = min(continuity, self.degree - m)
+        return continuity
 
     def eval_basis(self, knots_to_interp: np.ndarray, nders: int = 1):
         """

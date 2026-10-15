@@ -27,6 +27,8 @@ class StandardGauss(Template):
         Number of quadrature points per element. Default to ``degree + 1``.
     nders : int, optional
         Number of derivatives to stock. Default to 1.
+    span : (float, float)
+        Parametric span. Defaults to (0, 1)
     """
 
     def __init__(
@@ -36,8 +38,9 @@ class StandardGauss(Template):
         quadtype: Literal["legendre", "lobatto"],
         nbptsperel: Optional[int] = None,
         nders: Optional[int] = None,
+        parametric_space: Tuple[float, float] = (0, 1),
     ):
-        super().__init__(degree, knotvector)
+        super().__init__(degree, knotvector, parametric_space=parametric_space)
         self._quadrature_type = validate_entry(quadtype, ["legendre", "lobatto"])
         self._nders = int(nders) if nders is not None else 1
 

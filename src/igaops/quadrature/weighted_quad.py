@@ -20,11 +20,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class _OutputArgs:
-    gauss_target: SG
     gsbasis_test: sp.csr_array
-    wqbasis_test: Optional[sp.csr_array]
+    wqbasis_test: sp.csr_array
     gsbasis_target: sp.csr_array
-    wqbasis_target: Optional[sp.csr_array]
+    wqbasis_target: sp.csr_array
 
 
 class _PointGenerator:
@@ -60,12 +59,13 @@ class _PointGenerator:
         quadpts.extend(tmp)
 
         # Inner spans
-        for i in range(1, len(breakpoints) - 2):
+        n = len(breakpoints) - 2
+        for i in range(1, n):
             tmp = algorithm(breakpoints[i], breakpoints[i + 1], n_list[i])
             quadpts.extend(tmp)
 
         # Last span
-        tmp = algorithm(breakpoints[-2], breakpoints[-1], n_list[-1])
+        tmp = algorithm(breakpoints[-2], breakpoints[-1], n_list[n])
         quadpts.extend(tmp)
 
         return np.sort(np.unique(quadpts))
@@ -93,46 +93,48 @@ class _Helpers:
         return degree_target, knotvector_target
 
     @staticmethod
-    def precompute_data(
+    def get_target_space(
         gauss_test: SG,
         method: Literal["1", "2"],
-        wq_quadpts: Optional[np.ndarray] = None,
-    ) -> _OutputArgs:
-
+    ):
         deg_target, kv_target = _Helpers.get_deg_kv_target(
             gauss_test.degree, gauss_test.knotvector, method
         )
-
-        # Basis for W00 in method 1
-        B0gs_test = gauss_test.basis[0]
-        B0wq_test = None
-        if wq_quadpts is not None:
-            B0wq_test = gauss_test.eval_basis(wq_quadpts)[0]
-
-        gauss_target = SG(
+        return SG(
             degree=deg_target,
             knotvector=kv_target,
             quadtype="legendre",
             nbptsperel=gauss_test.nbptsperel,
-        )
-
-        # Basis for W01 in method 1 or W0 in method 2
-        B0gs_target = gauss_target.eval_basis(gauss_test.quadpts)[0]
-        B0wq_target = None
-        if wq_quadpts is not None:
-            B0wq_target = gauss_target.eval_basis(wq_quadpts)[0]
-
-        return _OutputArgs(
-            gauss_target=gauss_target,
-            gsbasis_test=B0gs_test,
-            wqbasis_test=B0wq_test,
-            gsbasis_target=B0gs_target,
-            wqbasis_target=B0wq_target,
+            parametric_space=gauss_test.parametric_space,
         )
 
     @staticmethod
-    def _compute_knot_support(quadpts: np.ndarray) -> np.ndarray:
-        quadpts_extended = np.concatenate([[0], quadpts, [1]])
+    def precompute_data(
+        gauss_test: SG,
+        gauss_target: SG,
+        wq_quadpts: np.ndarray,
+    ) -> _OutputArgs:
+
+        # Basis for W00 in method 1
+        B0gs_test = gauss_test.basis[0]
+        B0wq_test = gauss_test.eval_basis(wq_quadpts)[0]
+
+        # Basis for W01 in method 1 or W0 in method 2
+        B0gs_target = gauss_target.eval_basis(gauss_test.quadpts)[0]
+        B0wq_target = gauss_target.eval_basis(wq_quadpts)[0]
+
+        return _OutputArgs(
+            gsbasis_test=B0gs_test,
+            wqbasis_test=B0wq_test.T,
+            gsbasis_target=B0gs_target,
+            wqbasis_target=B0wq_target.T,
+        )
+
+    @staticmethod
+    def _compute_knot_support(quadpts: np.ndarray, unique_kv: np.ndarray) -> np.ndarray:
+        lf = 2 * unique_kv[0] - quadpts[0]
+        rg = 2 * unique_kv[-1] - quadpts[-1]
+        quadpts_extended = np.concatenate([[lf], quadpts, [rg]])
         mean_quapts_extendend = (quadpts_extended[:-1] + quadpts_extended[1:]) / 2.0
         return np.diff(mean_quapts_extendend)
 
@@ -141,55 +143,47 @@ class _Helpers:
         gauss_test: SG,
         quadpts: np.ndarray,
         method: Literal["1", "2"],
-        output_args: Optional[_OutputArgs] = None,
+        output_args: _OutputArgs,
     ) -> Tuple[List[sp.csr_array], List[np.ndarray]]:
 
         if method not in ["1", "2"]:
             raise ValueError("Unknown method for weighted quadrature.")
 
         # Test space
-        W0gs_test = gauss_test.weights[0]
         basis = gauss_test.eval_basis(quadpts, nders=1)
 
-        # Target space
-        if output_args is None:
-            output_args = _Helpers.precompute_data(
-                gauss_test, method, wq_quadpts=quadpts
-            )
-
         # Compute quadrature points support
-        quadpts_support = _Helpers._compute_knot_support(quadpts)
+        quadpts_support = _Helpers._compute_knot_support(quadpts, gauss_test.unique_kv)
 
         # Compute regularization from support
-        regularization = sp.csr_array(basis[0].T @ sp.diags(quadpts_support))
+        regularization = sp.csr_array(basis[0].T @ sp.diags(quadpts_support)).toarray()
 
         # Compute the weights
         weights_dense: List[np.ndarray] = []
 
-        def compute(dtype: Literal["test", "target"]):
+        def compute(Z_mat: np.ndarray, dtype: Literal["test", "target"]):
             "Common computation for method 1 and 2"
+
             A_op1, A_op2 = output_args.wqbasis_test, output_args.wqbasis_target
             A_mat = A_op1 if dtype == "test" else A_op2
-            if A_mat is None:
-                raise RuntimeError("Weighted basis are not defined.")
 
             B_op1, B_op2 = output_args.gsbasis_test, output_args.gsbasis_target
             B_mat = B_op1 if dtype == "test" else B_op2
 
-            integral = sp.csr_array(W0gs_test @ B_mat)
-            out = Operations.solve_optimization_problem(
-                Z=regularization.toarray(),
-                A=A_mat.toarray().T,
+            integral = sp.csr_array(gauss_test.weights[0] @ B_mat)
+
+            return Operations.solve_optimization_problem(
+                Z=Z_mat,
+                A=A_mat.toarray(),
                 B=integral.toarray(),
             )
-            return out
 
         if method == "1":
             # Computation of W00 for method 1
-            weights_dense.append(compute("test"))
+            weights_dense.append(compute(regularization, "test"))
 
         # Computation of W01 for method 1 or W0 for method 2
-        weights_dense.append(compute("target"))
+        weights_dense.append(compute(regularization, "target"))
 
         return basis, weights_dense
 
@@ -215,8 +209,6 @@ class _Helpers:
     def eval_nbquadpts_per_element(
         degree: int, knotvector: np.ndarray, quadrature_type: Literal["1", "2"]
     ):
-        # Set a minimum
-        LOWER = 1
 
         # Get target degree and knotvector
         deg_target, kv_target = _Helpers.get_deg_kv_target(
@@ -235,9 +227,8 @@ class _Helpers:
 
         bg, A, b = convert_to_greedy_input(S4)
 
-        # Modify lower bound (best guess)
-        bg = np.maximum(bg + 1, LOWER).astype(int)
-        b = np.maximum(b + 1, LOWER).astype(int)
+        # TODO: revise quadrature layout / greedy algorithm
+        bg += 1  # To ensure stability
 
         # Perform greedy algorithm
         bg = greedy_min_norm1(bg, A, b)
@@ -259,6 +250,11 @@ class WeightedQuadrature(Template):
         1: first kind based on 4 rules, 2: second kind based on 2 rules.
     position_rule : {"endpoint", "cellcenter"}
         Algorithm's name to compute the position of quadrature points. Default to ``endpoint``.
+    parametric_space : (float, float)
+        Parametric span. Defaults to (0, 1)
+    eval_nbpts_per_elem : callable
+        Function to select the number of quadrature points per element. The arguments are
+        ``degree``, ``knotvector`` and ``quadtype``.
     """
 
     def __init__(
@@ -267,8 +263,10 @@ class WeightedQuadrature(Template):
         knotvector: np.ndarray,
         quadtype: Literal["1", "2"],
         position_rule: Literal["endpoint", "cellcenter"] = "endpoint",
+        parametric_space: Tuple[float, float] = (0, 1),
+        eval_nbpts_per_elem: Optional[Callable] = None,
     ):
-        super().__init__(degree, knotvector)
+        super().__init__(degree, knotvector, parametric_space=parametric_space)
         self._quadrature_type = validate_entry(quadtype, ["1", "2"])
         self._position_rule = validate_entry(position_rule, ["endpoint", "cellcenter"])
 
@@ -279,7 +277,12 @@ class WeightedQuadrature(Template):
                 "with linear polynomials or one-element knotvectors."
                 "By default, Gauss quadrature will be used."
             )
+        if self.eval_minimal_continuity() < 0:
+            raise RuntimeError("The knotvector is not regular enough.")
 
+        self._eval_nbpts_per_elem = _Helpers.eval_nbquadpts_per_element
+        if callable(eval_nbpts_per_elem):
+            self._eval_nbpts_per_elem = eval_nbpts_per_elem
         self._generate()
 
     @property
@@ -298,7 +301,12 @@ class WeightedQuadrature(Template):
         if self._use_fallback:
             # Overwrite the quadrature points, basis and weights
             # using standard Gauss quadrature
-            q = SG(self.degree, self.knotvector, quadtype="legendre")
+            q = SG(
+                self.degree,
+                self.knotvector,
+                quadtype="legendre",
+                parametric_space=self.parametric_space,
+            )
             self._quadpts = q.quadpts
             self._weights = q.weights
             self._basis = q.basis
@@ -307,7 +315,7 @@ class WeightedQuadrature(Template):
         self._set_basis_and_weights()
 
     def _get_parametric_quadpts(self):
-        n_list = _Helpers.eval_nbquadpts_per_element(
+        n_list = self._eval_nbpts_per_elem(
             self.degree, self.knotvector, self.quadrature_type
         )
         PG = _PointGenerator
@@ -322,27 +330,31 @@ class WeightedQuadrature(Template):
     def _set_basis_and_weights(self):
         "Computes the basis and weights of the quadrature class"
 
-        # Cmpute the weights for W0
-        gauss_test = SG(self.degree, self.knotvector, quadtype="legendre")
+        # Compute test space for W0
+        gauss_test = SG(
+            self.degree,
+            self.knotvector,
+            quadtype="legendre",
+            parametric_space=self.parametric_space,
+        )
 
+        # Precompute extra arguments (ex. target functions) for W0 and W1 evaluation
+        gauss_target = _Helpers.get_target_space(gauss_test, self.quadrature_type)
+        output_args = _Helpers.precompute_data(gauss_test, gauss_target, self.quadpts)
+
+        # Compute the weights W00 and W01
         basis, list_weights = _Helpers.compute_W0_weights(
-            gauss_test, self.quadpts, self.quadrature_type
+            gauss_test, self.quadpts, self.quadrature_type, output_args
         )
 
         # To construct W1, we need to compute W0 of the space S^{p-1}_{r-1} for both methods 1 and 2
         # NOTE: It is a coincidence that this space corresponds to the target space of method 1
-        gauss_test_tmp = _Helpers.precompute_data(gauss_test, "1").gauss_target
+        gauss_test_tmp = _Helpers.get_target_space(gauss_test, "1")
 
         # Compute the weights for W1
-        output_args = _Helpers.precompute_data(
-            gauss_test, self.quadrature_type, self.quadpts
+        _, list_weights_tmp = _Helpers.compute_W0_weights(
+            gauss_test_tmp, self.quadpts, self.quadrature_type, output_args
         )
-        list_weights_tmp = _Helpers.compute_W0_weights(
-            gauss_test_tmp,
-            self.quadpts,
-            self.quadrature_type,
-            output_args=output_args,
-        )[-1]
 
         zeros = np.zeros(self.nbquadpts)
         for w in list_weights_tmp:
