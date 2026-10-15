@@ -27,6 +27,8 @@ class StandardGauss(Template):
         Number of quadrature points per element. Default to ``degree + 1``.
     nders : int, optional
         Number of derivatives to stock. Default to 1.
+    span : (float, float)
+        Parametric span. Defaults to (0, 1)
     """
 
     def __init__(
