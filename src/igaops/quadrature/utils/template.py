@@ -2,6 +2,7 @@ from typing import List, Any
 from abc import ABC, abstractmethod
 
 from scipy import sparse as sp
+from geomdl import helpers
 import numpy as np
 
 from .operations import Operations
@@ -10,11 +11,18 @@ from .operations import Operations
 class Template(ABC):
     def __init__(self, degree: int, knotvector: np.ndarray):
         # Public variables that need to be checked
-        self.degree = degree
-        self.knotvector = knotvector
+        self._degree = int(degree)
+        self._knotvector = np.asarray(knotvector).astype(float)
+        self._parametric_space = (0.0, 1.0)
 
         # Public variables that are fixed
-        self._unique_kv = np.unique(np.clip(self.knotvector, a_min=0, a_max=1))
+        self._unique_kv = np.unique(
+            np.clip(
+                self.knotvector,
+                a_min=self.parametric_space[0],
+                a_max=self.parametric_space[1],
+            )
+        )
         self._nbctrlpts = len(self.knotvector) - self.degree - 1
 
         # Public variables that may vary
@@ -27,20 +35,15 @@ class Template(ABC):
         "Spline degree"
         return self._degree
 
-    @degree.setter
-    def degree(self, value):
-        if not (np.isscalar(value) and np.real(value) > 0):
-            raise ValueError("Degree should be positive integer")
-        self._degree = int(np.real(value))
-
     @property
     def knotvector(self):
         "Spline knotvector"
         return self._knotvector
 
-    @knotvector.setter
-    def knotvector(self, value):
-        self._knotvector = np.asarray(value).astype(float)
+    @property
+    def parametric_space(self):
+        "Parametric space normalized to [0, 1]"
+        return self._parametric_space
 
     @property
     def unique_kv(self):
@@ -57,30 +60,15 @@ class Template(ABC):
         "Quadrature points"
         return self._quadpts
 
-    @quadpts.setter
-    def quadpts(self, val):
-        if isinstance(val, np.ndarray):
-            self._quadpts = val
-
     @property
     def basis(self):
         "Quadrature basis"
         return self._basis
 
-    @basis.setter
-    def basis(self, val):
-        if len(val) > 0 and all(sp.issparse(v) for v in val):
-            self._basis = val
-
     @property
     def weights(self):
         "Quadrature weights"
         return self._weights
-
-    @weights.setter
-    def weights(self, val):
-        if len(val) > 0 and all(sp.issparse(v) for v in val):
-            self._weights = val
 
     @property
     def nbquadpts(self):
@@ -108,6 +96,14 @@ class Template(ABC):
     def _generate(self):
         "Initializes the quadrature class"
         raise NotImplementedError("To implement in children")
+
+    def eval_minimal_continuity(self):
+        "Evaluates the minimal continuity overall (across elements)"
+        continuity = self.degree - 1
+        for knot in self.unique_kv[1:-1]:
+            m = helpers.find_multiplicity(knot, self.knotvector)
+            continuity = min(continuity, self.degree - m)
+        return continuity
 
     def eval_basis(self, knots_to_interp: np.ndarray, nders: int = 1):
         """
@@ -143,9 +139,8 @@ class Template(ABC):
             knotvector=knotvector,
         )
         basis = instance.eval_basis(knots, nders=nders)
-        instance.quadpts = knots
-        instance.basis = basis
-        instance.weights = []
+        instance._quadpts = knots
+        instance._basis = basis
         return instance
 
     def __repr__(self) -> str:

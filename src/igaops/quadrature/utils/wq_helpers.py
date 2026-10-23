@@ -66,17 +66,18 @@ def compute_quadrature_layout(
     # Step 1
     supp_test = _element_supports(Xi_hat, degree_test, Delta)
     supp_target = _element_supports(Xi_bar, degree_target, Delta)
+
     S1 = _build_S1(supp_test, supp_target)
 
     # Step 2
-    mu = _build_S2(S1, n_el)
+    S2 = _build_S2(S1, n_el)
 
     # Steps 3 and 4
     S4 = np.zeros((n_el, n_el), dtype=int)
 
-    for mu_i in mu:
-        B = _compute_mu_bar_table(mu_i)
-        np.maximum(S4, B, out=S4)
+    for S2_i in S2:
+        S3 = _compute_mu_bar_table(S2_i)
+        np.maximum(S4, S3, out=S4)
 
     return S4.astype(int)
 
@@ -201,11 +202,12 @@ def convert_to_greedy_input(S4: np.ndarray):
     Convert output from ``compute_quadrature_layout`` (stage S4) to inputs for ``greedy_min_norm1``.
     """
     n_el = S4.shape[0]
-    lb = np.diag(S4)
+    lb = np.diag(S4).copy()
 
     rows_A, rows_b = [], []
-    for r in range(n_el):
-        for s in range(r + 1, n_el):  # off-diagonal only
+    for d in range(1, n_el):  # distance from diagonal
+        for r in range(n_el - d):
+            s = r + d
             row = np.zeros(n_el, dtype=int)
             row[r : s + 1] = 1
             rows_A.append(row)

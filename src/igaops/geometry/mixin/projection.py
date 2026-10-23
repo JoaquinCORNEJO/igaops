@@ -178,11 +178,8 @@ class ProjectionMixin(SingleSpline):
         X_target = Reader.ensure_3_rows(X_target)
         projector = _ClosestPointProjector(self, localization, method=method)
 
-        # Set first guess from localization data
-        solution = projector.generate_guess(X_target.shape[1])
-
         # Use projector class for solving
-        projector.solve(X_target, solution, warping, tolerance=tolerance)
+        solution = projector.solve(X_target, warping, tolerance=tolerance)
         status, mask = projector.get_status(solution)
 
         if status == _Status.FAILED:
@@ -250,6 +247,12 @@ class _ClosestPointProjector:
             raise RuntimeError("Projector variable is undefined.")
         return self._projector_vars
 
+    @property
+    def should_compute_hessian(self):
+        condition_1 = self.method == "newton"
+        condition_2 = np.min(self.patch.degree) > 1
+        return condition_1 and condition_2
+
     def _clip_0_to_1(self, array: np.ndarray):
         """
         Force the values of arrays to be between 0 and 1.
@@ -311,14 +314,10 @@ class _ClosestPointProjector:
         # Preambule
         X_target = self.projector_vars.X_target
 
-        compute_hessian = (
-            self.method == "newton" and np.min(list(self.patch.degree)) > 1
-        )
-
         self._clip_0_to_1(solution)
 
         # Computations
-        X_k, J_k, H_k = self._eval_projection(solution, compute_hessian)
+        X_k, J_k, H_k = self._eval_projection(solution, self.should_compute_hessian)
 
         res_k = np.einsum("ik,ijk->jk", X_target - X_k, J_k, optimize=True)
         tan_k = np.einsum("lik,ljk->ijk", J_k, J_k, optimize=True)
@@ -340,11 +339,36 @@ class _ClosestPointProjector:
         incr = np.einsum("ijk,jk->ik", invtang, residual, optimize=True)
         return incr
 
-    def generate_guess(self, nnz: int):
+    def _generate_guess(self, X_target: np.ndarray):
         """
-        Generate the default initial guess xi = 0.5 in the active directions.
+        Generate the initial guess.
         """
-        return np.full((self.patch.ndim - 1, nnz), 0.5)
+
+        def refine(a_in: np.ndarray):
+            mid = 0.5 * (a_in[:-1] + a_in[1:])
+            a_out = np.empty(a_in.size + mid.size, dtype=float)
+            a_out[0::2] = a_in
+            a_out[1::2] = mid
+            return a_out
+
+        # Generate candidates: structured grid strategy
+        axes = [refine(q.unique_kv) for q in self.quadrature_list]
+        mesh = np.meshgrid(*axes, indexing="ij")
+        candidates = np.stack([m.ravel() for m in mesh])
+
+        # Project candidate to physical
+        X_cand = self._eval_projection(candidates, False)[0]
+
+        # Compute distance between candidate and target
+        dist = (
+            np.sum(X_cand**2, axis=0)[:, np.newaxis]
+            + np.sum(X_target**2, axis=0)[np.newaxis, :]
+            - 2 * X_cand.T @ X_target
+        )
+
+        # Select better candidates
+        idx = np.argmin(dist, axis=0)
+        return candidates[:, idx]
 
     def reconstruct(self, array: np.ndarray):
         """
@@ -361,7 +385,6 @@ class _ClosestPointProjector:
     def solve(
         self,
         X_target: np.ndarray,
-        solution: np.ndarray,
         warping: Optional[np.ndarray] = None,
         tolerance: float = Constants.TINY,
     ):
@@ -372,8 +395,6 @@ class _ClosestPointProjector:
         ----------
         X_target : array_like
             The target physical points.
-        solution : array_like
-            Initial parametric coordinates. Modified in-situ.
         warping : array_like
             Optional displacement / warping of the control points.
         tolerance : float
@@ -389,12 +410,14 @@ class _ClosestPointProjector:
         self.nonlinearsolver.update(
             tolerance=tolerance, allow_acceleration=self.method == "picard"
         )
+        solution = self._generate_guess(X_target)
         self._last_simulation = self.nonlinearsolver.solve(
             solution,
             compute_residual=self._compute_residual,
             compute_increment=self._compute_increment,
         )
         self._projector_vars = None
+        return solution
 
     def get_status(self, array_in: np.ndarray) -> Tuple[int, np.ndarray]:
         """
