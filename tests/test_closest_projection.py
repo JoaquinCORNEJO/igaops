@@ -118,7 +118,7 @@ def create_NURBS_arc(
     return obj
 
 
-def create_nurbs_patch(
+def create_NURBS_arc_patch(
     degree_u: int, degree_v: int, nbel_u: int, nbel_v: int, **geo_args
 ) -> NURBS.Surface:
 
@@ -165,7 +165,7 @@ def quarter_annulus():
         "radius_ext": 2.0,
         "angle_extension": (0.0, np.pi / 2),
     }
-    geometry = create_nurbs_patch(
+    geometry = create_NURBS_arc_patch(
         degree_u=DEGREE, degree_v=DEGREE, nbel_u=NBEL, nbel_v=NBEL, **geo_args
     )
     return SinglePatch.from_geomdl(
@@ -229,3 +229,109 @@ def test_closest_point_projection_2(cube, localization, method):
     )
 
     np.testing.assert_allclose(pts, X_target, rtol=1e-6)
+
+
+# Fourth example
+
+
+def create_NURBS_circonference(degree: int, nbel: int):
+
+    if degree != 3:
+        raise ValueError("Should be cubic.")
+
+    if nbel % 2 != 0:
+        raise ValueError("The number of elements should be even.")
+
+    ctrlptsw = [
+        [1, 0, 0, 1],
+        [1 / 3, 2 / 3, 0, 1 / 3],
+        [-1 / 3, 2 / 3, 0, 1 / 3],
+        [-1, 0, 0, 1],
+        [-1 / 3, -2 / 3, 0, 1 / 3],
+        [1 / 3, -2 / 3, 0, 1 / 3],
+        [1, 0, 0, 1],
+    ]
+
+    obj = NURBS.Curve()
+    obj.degree = 3
+    obj.ctrlptsw = ctrlptsw
+    obj.knotvector = [0, 0, 0, 0, 0.5, 0.5, 0.5, 1, 1, 1, 1]
+
+    # Add degree elevation
+    if degree > 3:
+        operations.degree_operations(obj, [degree - 3])
+
+    # Add knot refinement
+    if nbel > 2:
+        knots = np.hstack(
+            [
+                np.linspace(0.0, 0.5, nbel // 2 + 1)[:-1],
+                np.linspace(0.5, 1.0, nbel // 2 + 1)[1:],
+            ]
+        )[1:-1]
+        for knot in knots:
+            operations.insert_knot(obj, [knot], [1])
+
+    return obj
+
+
+def create_NURBS_annulus_patch(
+    degree_u: int, degree_v: int, nbel_u: int, nbel_v: int, **geo_args
+) -> NURBS.Surface:
+
+    RINT = geo_args["radius_int"]
+    REXT = geo_args["radius_ext"]
+
+    # Construction of the arc
+    obj_arc = create_NURBS_circonference(degree_v, nbel_v)
+    knotvector_v = obj_arc.knotvector
+    ctrlpts_arc = obj_arc.ctrlpts
+    weights_arc = obj_arc.weights
+
+    # Construction of line
+    knotvector_u = GeometryOps.make_open_knotvector(degree_u, nbel_u)
+    ctrlpts_line = GeometryOps.evaluate_greville(degree_u, knotvector_u)
+    ctrlpts_line = RINT + ctrlpts_line * (REXT - RINT)
+
+    # Construction of annulus sector
+    ctrlpts = [
+        [x_line * x_arc * w_arc, x_line * y_arc * w_arc, 0.0, w_arc]
+        for x_line in ctrlpts_line
+        for (x_arc, y_arc, _), w_arc in zip(ctrlpts_arc, weights_arc)
+    ]
+
+    # Create surface
+    obj = NURBS.Surface()
+    obj.degree_u = degree_u
+    obj.degree_v = degree_v
+    obj.set_ctrlpts(ctrlpts, len(ctrlpts_line), len(ctrlpts_arc))
+    obj.knotvector_u = knotvector_u
+    obj.knotvector_v = knotvector_v
+
+    return obj
+
+
+@pytest.fixture
+def circonference():
+    DEGREE = 3
+    NBEL = 4
+    geo_args = {"radius_int": 1.0, "radius_ext": 2.0}
+    geometry = create_NURBS_annulus_patch(
+        degree_u=DEGREE, degree_v=DEGREE, nbel_u=NBEL, nbel_v=NBEL, **geo_args
+    )
+    return SinglePatch.from_geomdl(
+        geometry, quadclass="gauss", quadtype="legendre"
+    ).generate()
+
+
+@pytest.mark.parametrize("method", ["newton", "picard"])
+def test_closest_point_projection_3(circonference, localization, method):
+    x0 = 0.9
+    y0 = np.sqrt(1 - x0**2)
+    X_target = np.array([[x0, y0, 0.0]]).T
+    pts, _ = circonference.closest_point_projection(
+        X_target=X_target,
+        localization=localization,
+        method=method,
+    )
+    np.testing.assert_allclose(pts[1], [0.0933027], rtol=1e-6)
