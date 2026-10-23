@@ -255,16 +255,13 @@ class BsplineOperations(Template):
         coefficients: np.ndarray,
         nurbs_weights: np.ndarray = np.array([]),
     ) -> np.ndarray:
-        nm, _ = np.shape(coefficients)
-        nr_list = _Helpers.get_nbofrows(quadrule_list)
-        array_out = np.zeros((nm, np.prod(nr_list)))
-        for i in range(nm):
-            array_out[i] = MatrixFree.apply(
-                [q.weights[0] for q in quadrule_list],
-                coefficients[i],
-                is_transpose=False,
-            )
-        return array_out
+        if coefficients.ndim != 2:
+            raise ValueError("Expected 2D array.")
+        return MatrixFree.apply(
+            [q.weights[0] for q in quadrule_list],
+            coefficients.T,
+            is_transpose=False,
+        ).T
 
     @staticmethod
     def assemble_scalar_gradu_force(
@@ -272,19 +269,22 @@ class BsplineOperations(Template):
         coefficients: np.ndarray,
         nurbs_weights: np.ndarray = np.array([]),
     ) -> np.ndarray:
+        if coefficients.ndim != 3:
+            raise ValueError("Expected 3D array.")
+
         ndim = len(quadrule_list)
         nm = np.shape(coefficients)[0]
         nr_list = _Helpers.get_nbofrows(quadrule_list)
         array_out = np.zeros((nm, np.prod(nr_list)))
-        for j in range(nm):
-            for i in range(ndim):
-                zeta_list = np.zeros(ndim, dtype=int)
-                zeta_list[i] = 2
-                array_out += MatrixFree.apply(
-                    [q.weights[zeta] for q, zeta in zip(quadrule_list, zeta_list)],
-                    coefficients[j][i],
-                    is_transpose=False,
-                )
+
+        for i in range(ndim):
+            zeta_list = np.zeros(ndim, dtype=int)
+            zeta_list[i] = 2
+            array_out += MatrixFree.apply(
+                [q.weights[zeta] for q, zeta in zip(quadrule_list, zeta_list)],
+                coefficients[:, i, :].T,
+                is_transpose=False,
+            ).T
         return array_out
 
     @staticmethod
