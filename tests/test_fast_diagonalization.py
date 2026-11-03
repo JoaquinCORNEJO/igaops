@@ -67,7 +67,7 @@ def setup() -> Dict[str, Any]:
     table_dirichlet[0, 0, 0] = True
     table_dirichlet[0, 2, 1] = True
 
-    fd = SingleFD()
+    fd = SingleFD("spatial")
     fd.compute_space_eigendecomposition(
         space_quadrule_list=quadrule_list,
         space_table_dirichlet=table_dirichlet,
@@ -251,10 +251,7 @@ def test_gmres_converges_in_few_iterations(
     assert solver_results["niter"] < 5
 
 
-def test_spatial_preconditioner_matches_dense_reference(
-    setup,
-    preconditioner,
-):
+def test_spatial_preconditioner_matches_dense_reference(setup, preconditioner):
     fd = setup["fd"]
     free_nodes = setup["free_nodes"]
 
@@ -264,7 +261,7 @@ def test_spatial_preconditioner_matches_dense_reference(
     Pv_dense = np.zeros_like(v)
     Pv_dense[free_nodes] = preconditioner(v[free_nodes])
 
-    Pv_mf = fd.apply_spatial_preconditioner(v)
+    Pv_mf = fd.apply(v)
 
     # NOTE: the relative error is "high" because FD adds regularizations
     # to avoid division by zero

@@ -137,12 +137,13 @@ class SpaceFD(Template):
             A boolean array indicating the Dirichlet boundary conditions for each DoFs per node and direction.
         """
         quadrule_list = self.rewrite_quadrature(space_quadrule_list)
-        mass_list: List[sp.csr_array] = [
-            q.weights[0] @ q.basis[0] for q in quadrule_list
+        mass_list: List[np.ndarray] = [
+            sp.csr_array(q.weights[0] @ q.basis[0]).toarray() for q in quadrule_list
         ]
-        stiff_list: List[sp.csr_array] = [
-            q.weights[-1] @ q.basis[-1] for q in quadrule_list
+        stiff_list: List[np.ndarray] = [
+            sp.csr_array(q.weights[-1] @ q.basis[-1]).toarray() for q in quadrule_list
         ]
+        nnz_list = [m.shape[0] for m in mass_list]
 
         nbDoFsPerNode, nbdirs, _ = np.shape(space_table_dirichlet)
         nbdirs = np.min([nbdirs, len(quadrule_list)])
@@ -156,9 +157,7 @@ class SpaceFD(Template):
             mass_corrector.append(1.0)
             stif_corrector.append(np.ones(nbdirs))
             for jj, sp_dir in enumerate(space_dirs):
-                B: np.ndarray = mass_list[jj].toarray()
-                A: np.ndarray = stiff_list[jj].toarray()
-                nnz = B.shape[0]
+                nnz = nnz_list[jj]
                 inf_index, sup_index = 0, nnz
                 if space_table_dirichlet[ii, jj, 0]:
                     inf_index += 1
@@ -167,12 +166,13 @@ class SpaceFD(Template):
                 indices = np.arange(inf_index, sup_index, dtype=int).tolist()
                 nnz_by_dir[sp_dir] = nnz
                 indx_by_dir[(ii, sp_dir)] = indices
+
+                B = mass_list[jj][np.ix_(indices, indices)]
+                A = stiff_list[jj][np.ix_(indices, indices)]
                 if nnz == len(indices):
-                    # NOTE: this avoids division by zero
-                    A += Constants.SMALL * B
-                eigvals, eigvecs = sclin.eigh(
-                    A[np.ix_(indices, indices)], B[np.ix_(indices, indices)]
-                )
+                    # NOTE: this avoids null eigenvalues
+                    A += Constants.TINY * B
+                eigvals, eigvecs = sclin.eigh(A, B)
                 eigvecs_by_dir.append(np.real(eigvecs))
                 eigvals_by_dir.append(np.real(eigvals))
             all_eigvecs_by_dir.append(eigvecs_by_dir)
@@ -270,7 +270,7 @@ class SpaceFD(Template):
             self._stiff_space_corrector = stiffness_corrector
             self._space_eigenvalues = None
 
-    def apply_spatial_preconditioner(self, array_in: np.ndarray) -> np.ndarray:
+    def apply(self, array_in: np.ndarray) -> np.ndarray:
         """
         Apply the spatial part of the fast-diagonalization preconditioner to the input array.
 

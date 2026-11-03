@@ -28,7 +28,7 @@ def simulation(degree: int, nbel: int, ndim=2):
     quadrule = StandardGauss(degree, knotvector, quadtype="legendre")
     quadrule_list = [quadrule] * ndim
 
-    fd = SingleFD()
+    fd = SingleFD("spacetime")
     table_dirichlet = np.ones((NDOF, ndim, 2), dtype=bool)
     fd.compute_space_eigendecomposition(quadrule_list, table_dirichlet)
     fd.compute_time_schurdecomposition(quadrule)
@@ -37,12 +37,12 @@ def simulation(degree: int, nbel: int, ndim=2):
     v = rng.random(
         NDOF * fd.space_preconditioner.sp_nnz * fd.sptm_preconditioner.tm_nnz
     )
-    fd.apply_spacetime_preconditioner(v)
+    fd.apply(v)
 
     time_sum = 0.0
     for _ in range(NTIMES):
         start = process_time()
-        fd.apply_spacetime_preconditioner(v)
+        fd.apply(v)
         finish = process_time()
         time_sum += finish - start
     time_total = time_sum / NTIMES

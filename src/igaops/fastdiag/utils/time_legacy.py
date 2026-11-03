@@ -60,7 +60,7 @@ class SpTimeFD(SpTmFDTemplate):
         if advection_corrector is not None and is_verified(advection_corrector):
             self._advection_time_corrector = advection_corrector
 
-    def apply_spacetime_preconditioner(self, array_in: np.ndarray) -> np.ndarray:
+    def apply(self, array_in: np.ndarray) -> np.ndarray:
         start = time()
         tail_shape = array_in.shape[1:]
         array_in = np.reshape(array_in, (self.nbDoFsPerNode, -1, *tail_shape))
@@ -105,7 +105,7 @@ class SpTimeFD(SpTmFDTemplate):
         )
         return np.reshape(array_out, (-1, *tail_shape))
 
-    def apply_spacetime_preconditioner_trans(self, array_in: np.ndarray) -> np.ndarray:
+    def apply_transpose(self, array_in: np.ndarray) -> np.ndarray:
         start = time()
         tail_shape = array_in.shape[1:]
         array_in = np.reshape(array_in, (self.nbDoFsPerNode, -1, *tail_shape))
