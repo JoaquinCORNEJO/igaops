@@ -5,8 +5,8 @@ from scipy import sparse as sp
 import numpy as np
 
 from igaops.common import validate_entry
-from .lagrange.augmented import AugmentedLagrange as ALM1
-from .lagrange.alm_testing import AugmentedLagrange as ALM2
+from .lagrange.alm_classic import AugmentedLagrange as ALM1
+from .lagrange.alm_krylov import AugmentedLagrange as ALM2
 from .lagrange.standard import StandardLagrange
 
 array_like = Union[np.ndarray, sp.csr_array, LinearOperator]
@@ -76,7 +76,7 @@ class LagrangeSolver:
         Linear solver tolerance.
     maxiters : int
         Linear solver number of iterations.
-    lagrange_type : {"augmented", "standard"}
+    lagrange_type : {"alm_classic", "alm_krylov", "standard"}
         Method chossen.
     verbose : bool
         If true, prints information of solvers.
@@ -85,9 +85,9 @@ class LagrangeSolver:
     """
 
     registry = {
-        "augmented": ALM1,
+        "alm_classic": ALM1,
+        "alm_krylov": ALM2,
         "standard": StandardLagrange,
-        "testing": ALM2,
     }
 
     def __new__(
@@ -96,7 +96,7 @@ class LagrangeSolver:
         constraint_vector: np.ndarray,
         tolerance: float,
         maxiters: int,
-        lagrange_type: Literal["augmented", "standard", "testing"] = "augmented",
+        lagrange_type: Literal["alm_classic", "alm_krylov", "standard"] = "alm_classic",
         verbose: bool = True,
         dual_constraint_matrix: Optional[array_like] = None,
     ) -> Union[ALM1, ALM2, StandardLagrange]:

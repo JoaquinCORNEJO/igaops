@@ -115,7 +115,7 @@ def adaptive_range_finder(
             omega_new = rng.standard_normal(n)
             y_new = power_iteration(
                 A,
-                omega_new[:, None],
+                omega_new[:, np.newaxis],
                 power_iters=power_iters,
             ).ravel()
             if Q.shape[1]:
@@ -139,7 +139,7 @@ def adaptive_range_finder(
         omega_new = rng.standard_normal(n)
         y_new_raw = power_iteration(
             A,
-            omega_new[:, None],
+            omega_new[:, np.newaxis],
             power_iters=power_iters,
         ).ravel()
 

@@ -6,7 +6,7 @@ import numpy as np
 from igaops.solvers.linear_solver import LinearSolver
 
 from .schur_solver import SchurSolver
-from .template import Template
+from .template import Template, preconditioner_like
 
 logger = logging.getLogger(__name__)
 
@@ -44,14 +44,13 @@ class ALM_Template(Template):
     def _get_loose_solution(self, apply_M: Callable, x: np.ndarray, apply_P: Callable):
         return self.loose_solver.solve(apply_M, x, apply_P).solution
 
-    def _set_local_solver(self, apply_P: Callable, apply_Ptrans: Optional[Callable]):
+    def _set_local_solver(self, preconditioner: preconditioner_like):
         self._local_solver = SchurSolver(
-            A=apply_P,
+            P=preconditioner,
             B=self.dual_matrix,
             C=self.constraint_matrix,
             mu=1.0 / self.lagrange_penalty,
             solver_type="lu",
-            AT=apply_Ptrans,
         )
 
     def compute_residual_lag(

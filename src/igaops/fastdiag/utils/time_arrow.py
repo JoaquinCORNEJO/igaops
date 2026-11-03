@@ -147,36 +147,44 @@ class SpTimeFD(SpTmFDTemplate):
 
     def apply_transpose(self, array_in: np.ndarray) -> np.ndarray:
         start = time()
-        tail_shape = array_in.shape[1:]
-        array_in = np.reshape(array_in, (self.nbDoFsPerNode, -1, *tail_shape))
-        array_out = np.zeros_like(array_in)
         H, bfac, S = self.blocks_time_transpose
 
-        for ii in range(self.nbDoFsPerNode):
-            array_to_apply = array_in[ii][self.sptm_free_nodes[ii]]
-            if np.linalg.norm(array_to_apply) == 0.0:
+        tail_shape = array_in.shape[1:]
+        n1 = self.nbDoFsPerNode
+        n2 = array_in.shape[0] // n1
+
+        array_in = np.reshape(array_in, (n1, n2, -1))
+        array_out = np.zeros_like(array_in)
+
+        for ii in range(n1):
+            free_nodes = self.sptm_free_nodes[ii]
+            array_to_apply = array_in[ii, free_nodes]
+
+            active_columns = np.any(array_to_apply != 0.0, axis=0)
+            if not np.any(active_columns):
                 continue
 
-            array1 = MatrixFree.apply(
+            array_active = array_to_apply[:, active_columns]
+            array_active = MatrixFree.apply(
                 self.space_fd.eigenvec_by_dir_space[ii] + [self.eigenvec_time],
-                array_to_apply,
+                array_active,
                 is_transpose=True,
             )
 
-            array2 = solve_special_arrowhead(
-                H=H[ii], bfac=bfac[ii], rhs=array1, schur=S[ii]
+            array_active = solve_special_arrowhead(
+                H=H[ii], bfac=bfac[ii], rhs=array_active, schur=S[ii]
             )
 
-            tmp = np.real(
+            array_active = np.real(
                 MatrixFree.apply(
                     self.space_fd.eigenvec_by_dir_space[ii]
                     + [self.eigenvec_time.conj()],
-                    array2,
+                    array_active,
                     is_transpose=False,
                 )
             )
 
-            array_out[ii][self.sptm_free_nodes[ii]] = tmp
+            array_out[ii][np.ix_(free_nodes, active_columns)] = array_active
 
         logger.debug(
             f"Single patch fast-diagonalization in {time() - start:.2e} seconds"

@@ -77,7 +77,7 @@ def solve_special_arrowhead(
         schur = compute_special_schur(H, bfac)  # shape m
 
     # RHS of last block: shape m, r
-    rhs_s = rhs_last + np.einsum("i,i...->...", np.conj(bfac), y, optimize=True)
+    rhs_s = rhs_last + np.tensordot(np.conj(bfac), y, axes=(0, 0))
 
     x_last = rhs_s / np.asarray(schur)[:, np.newaxis]  # shape m, r
 

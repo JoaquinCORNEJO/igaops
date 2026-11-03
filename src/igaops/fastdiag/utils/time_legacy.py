@@ -62,25 +62,35 @@ class SpTimeFD(SpTmFDTemplate):
 
     def apply(self, array_in: np.ndarray) -> np.ndarray:
         start = time()
-        tail_shape = array_in.shape[1:]
-        array_in = np.reshape(array_in, (self.nbDoFsPerNode, -1, *tail_shape))
-        array_out = np.zeros_like(array_in)
         adv_corr = self.advection_time_corrector
-        nnz_time = len(self.indices_by_dir[(0, ParametricDirection.TAU)])
+        n3 = len(self.indices_by_dir[(0, ParametricDirection.TAU)])
 
-        for ii in range(self.nbDoFsPerNode):
-            array_to_apply = array_in[ii][self.sptm_free_nodes[ii]]
-            if np.linalg.norm(array_to_apply) == 0.0:
+        tail_shape = array_in.shape[1:]
+        n1 = self.nbDoFsPerNode
+        n2 = array_in.shape[0] // n1
+
+        array_in = np.reshape(array_in, (n1, n2, -1))
+        array_out = np.zeros_like(array_in)
+        n4 = array_in.shape[2]
+
+        for ii in range(n1):
+            free_nodes = self.sptm_free_nodes[ii]
+            array_to_apply = array_in[ii, free_nodes]
+
+            active_columns = np.any(array_to_apply != 0.0, axis=0)
+            if not np.any(active_columns):
                 continue
 
-            array1 = MatrixFree.apply(
+            array_active = array_to_apply[:, active_columns]
+            array_active = MatrixFree.apply(
                 self.space_fd.eigenvec_by_dir_space[ii] + [self.schur_VSL.conj()],
-                array_to_apply,
+                array_active,
                 is_transpose=True,
             )
+
             # NOTE: Here, the order "F" has the meaning of slicing in time
             # so maybe it's not worth spending time in changing it to "C"
-            array1_reshape = np.reshape(array1, (-1, nnz_time, *tail_shape), order="F")
+            array1_reshape = np.reshape(array_active, (-1, n3, n4), order="F")
             array2_reshape = np.zeros_like(array1_reshape)
 
             # FIXME: Could we apply multi-threading here since we have
@@ -90,15 +100,15 @@ class SpTimeFD(SpTmFDTemplate):
                 mat = adv_corr[ii] * self.schur_adv + eigenvalues[idx] * self.schur_mass
                 array2_reshape[idx] = sclin.solve_triangular(mat, row, lower=False)
 
-            tmp = np.real(
+            array_active = np.real(
                 MatrixFree.apply(
                     self.space_fd.eigenvec_by_dir_space[ii] + [self.schur_VSR],
-                    np.reshape(array2_reshape, (-1, *tail_shape), order="F"),
+                    np.reshape(array2_reshape, (-1, n4), order="F"),
                     is_transpose=False,
                 )
             )
 
-            array_out[ii][self.sptm_free_nodes[ii]] = tmp
+            array_out[ii][np.ix_(free_nodes, active_columns)] = array_active
 
         logger.debug(
             f"Single patch fast-diagonalization in {time() - start:.2e} seconds"
@@ -107,47 +117,53 @@ class SpTimeFD(SpTmFDTemplate):
 
     def apply_transpose(self, array_in: np.ndarray) -> np.ndarray:
         start = time()
-        tail_shape = array_in.shape[1:]
-        array_in = np.reshape(array_in, (self.nbDoFsPerNode, -1, *tail_shape))
-        array_out = np.zeros_like(array_in)
         adv_corr = self.advection_time_corrector
-        nnz_time = len(self.indices_by_dir[(0, ParametricDirection.TAU)])
+        n3 = len(self.indices_by_dir[(0, ParametricDirection.TAU)])
 
-        for ii in range(self.nbDoFsPerNode):
-            array_to_apply = array_in[ii][self.sptm_free_nodes[ii]]
-            if np.linalg.norm(array_to_apply) == 0.0:
+        tail_shape = array_in.shape[1:]
+        n1 = self.nbDoFsPerNode
+        n2 = array_in.shape[0] // n1
+
+        array_in = np.reshape(array_in, (n1, n2, -1))
+        array_out = np.zeros_like(array_in)
+        n4 = array_in.shape[2]
+
+        for ii in range(n1):
+            free_nodes = self.sptm_free_nodes[ii]
+            array_to_apply = array_in[ii, free_nodes]
+
+            active_columns = np.any(array_to_apply != 0.0, axis=0)
+            if not np.any(active_columns):
                 continue
 
-            array1 = MatrixFree.apply(
+            array_active = array_to_apply[:, active_columns]
+            array_active = MatrixFree.apply(
                 self.space_fd.eigenvec_by_dir_space[ii] + [self.schur_VSR],
-                array_to_apply,
+                array_active,
                 is_transpose=True,
             )
 
             # NOTE: Here, the order "F" has the meaning of slicing in time
             # so maybe it's not worth spending time in changing it to "C"
-            array1_reshape = np.reshape(array1, (-1, nnz_time, *tail_shape), order="F")
+            array1_reshape = np.reshape(array_active, (-1, n3, n4), order="F")
             array2_reshape = np.zeros_like(array1_reshape)
 
             # FIXME: Could we apply multi-threading here since we have
             # to solve many independent triangular systems?
             eigenvalues = self.space_fd.space_eigenvalues[ii]
             for idx, row in enumerate(array1_reshape):
-                mat = (
-                    adv_corr[ii] * self.schur_adv.T
-                    + eigenvalues[idx] * self.schur_mass.T
-                )
-                array2_reshape[idx] = sclin.solve_triangular(mat, row, lower=True)
+                mat = adv_corr[ii] * self.schur_adv + eigenvalues[idx] * self.schur_mass
+                array2_reshape[idx] = sclin.solve_triangular(mat.T, row, lower=True)
 
-            tmp = np.real(
+            array_active = np.real(
                 MatrixFree.apply(
                     self.space_fd.eigenvec_by_dir_space[ii] + [self.schur_VSL.conj()],
-                    np.reshape(array2_reshape, (-1, *tail_shape), order="F"),
+                    np.reshape(array2_reshape, (-1, n4), order="F"),
                     is_transpose=False,
                 )
             )
 
-            array_out[ii][self.sptm_free_nodes[ii]] = tmp
+            array_out[ii][np.ix_(free_nodes, active_columns)] = array_active
 
         logger.debug(
             f"Single patch fast-diagonalization in {time() - start:.2e} seconds"

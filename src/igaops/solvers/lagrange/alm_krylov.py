@@ -1,9 +1,9 @@
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional, Tuple, Any
 import logging
 
 import numpy as np
 
-from .alm_template import ALM_Template
+from .alm_template import ALM_Template, preconditioner_like
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +17,7 @@ class AugmentedLagrange(ALM_Template):
         self,
         apply_T: Callable,
         rhs: np.ndarray,
-        apply_P: Optional[Callable],
-        apply_Ptrans: Optional[Callable],
+        preconditioner: Optional[preconditioner_like],
         reuse: bool,
     ):
         """
@@ -34,25 +33,25 @@ class AugmentedLagrange(ALM_Template):
         RHO = self.lagrange_penalty
         NR = len(self.constraint_vector)
 
-        if (not reuse or self._local_solver is None) and apply_P is not None:
-            self._set_local_solver(apply_P, apply_Ptrans)
+        if (not reuse or self._local_solver is None) and preconditioner is not None:
+            self._set_local_solver(preconditioner)
 
-        def Hmatvec(xw: np.ndarray):
-            "Computes matvec product with H = [A, B^T; B, -I/rho]"
+        def new_matvec(xw: np.ndarray):
+            "Computes matvec product with [A, B^T; B, -I/rho]"
             x = xw[:-NR]
             w = xw[-NR:]
             mvup = apply_T(x) + self.dual_matrix.T @ w
             mvdw = self.constraint_matrix @ x - w / RHO
             return np.hstack((mvup, mvdw))
 
-        def Hprecond(rxw: np.ndarray):
+        def new_precond(rxw: np.ndarray):
             """
             Computes the matvec product with
-            P = [I, 0; BP^-1, I][P, 0; 0, S][I, P^-1B^T; 0, I].
-            Here S is the Schur complement of H:
+            [I, 0; BP^-1, I][P, 0; 0, S][I, P^-1B^T; 0, I].
+            Here S is the Schur complement written like:
             S = -I/rho - B P^-1 B^T.
             """
-            if not callable(apply_P):
+            if preconditioner is None:
                 return rxw
 
             rx = rxw[:-NR]
@@ -60,7 +59,7 @@ class AugmentedLagrange(ALM_Template):
 
             # Solve [I, 0; BP^-1, I]
             dx1 = rx
-            P_dx1 = apply_P(dx1)
+            P_dx1 = preconditioner.apply(dx1)
             dw1 = rw - self.constraint_matrix @ P_dx1
 
             # Solve [P, 0; 0, S]
@@ -69,20 +68,19 @@ class AugmentedLagrange(ALM_Template):
 
             # Solve [I, P^-1B^T; 0, I]
             dw = dw2
-            dx = dx2 - apply_P(self.dual_matrix.T @ dw)
+            dx = dx2 - preconditioner.apply(self.dual_matrix.T @ dw)
 
             return np.hstack((dx, dw))
 
         new_rhs = np.hstack((rhs, np.zeros(NR)))
-        return self._get_loose_solution(Hmatvec, new_rhs, Hprecond)[:-NR]
+        return self._get_loose_solution(new_matvec, new_rhs, new_precond)[:-NR]
 
     def compute_increment_lag(
         self,
         apply_T: Callable,
-        apply_P: Optional[Callable],
+        preconditioner: Optional[Any],
         lagrange_res: np.ndarray,
         current_sol: np.ndarray,
-        apply_Ptrans: Optional[Callable] = None,
         reuse: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
 
@@ -103,12 +101,12 @@ class AugmentedLagrange(ALM_Template):
             Apply a preconditioner for the ALM matrix: [M11, C^T; 0, -I/rho]
             Here M11 is solved with a loose tolerance using preconditioner P.
             """
-            if not callable(apply_P):
+            if preconditioner is None:
                 return rz
 
             dlam = -RHO * rz[-NR:]
             rhs_x = rz[:-NR] - self.dual_matrix.T @ dlam
-            dx = self._solve_local_system(apply_T, rhs_x, apply_P, apply_Ptrans, reuse)
+            dx = self._solve_local_system(apply_T, rhs_x, preconditioner, reuse)
             self.inner_residual.append(self.loose_solver.last_simulation.residual)
             return np.hstack((dx, dlam))
 
