@@ -106,7 +106,7 @@ class SpTmFDTemplate(Template, ABC):
         raise NotImplementedError("To implement in children")
 
     @abstractmethod
-    def apply_spacetime_preconditioner(self, array_in: np.ndarray) -> np.ndarray:
+    def apply(self, array_in: np.ndarray) -> np.ndarray:
         """
         Apply the full space-time fast-diagonalization preconditioner to the input array.
 
@@ -123,7 +123,7 @@ class SpTmFDTemplate(Template, ABC):
         raise NotImplementedError("To implement in children")
 
     @abstractmethod
-    def apply_spacetime_preconditioner_trans(self, array_in: np.ndarray) -> np.ndarray:
+    def apply_transpose(self, array_in: np.ndarray) -> np.ndarray:
         """
         Apply the full space-time fast-diagonalization preconditioner to the input array.
 

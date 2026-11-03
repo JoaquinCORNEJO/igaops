@@ -1,10 +1,13 @@
-from typing import List, Sequence, Optional, Union
+from typing import List, Sequence, Optional, Union, Literal
+
 import numpy as np
 
-from igaops.quadrature import StandardGauss, WeightedQuadrature
 from .utils.space_precond import SpaceFD
 from .utils.time_arrow import SpTimeFD as FDarrowhead
 from .utils.time_legacy import SpTimeFD as FDlegacy
+
+from igaops.quadrature import StandardGauss, WeightedQuadrature
+from igaops.common import validate_entry
 
 QuadratureRule = Union[StandardGauss, WeightedQuadrature]
 
@@ -14,9 +17,16 @@ class SingleFastDiagonalization:
     This class implements the fast-diagonalization preconditioner for a single patch.
     """
 
-    def __init__(self):
+    def __init__(self, preconditioner_type: Literal["spatial", "spacetime"]):
+        self._preconditioner_type = validate_entry(
+            preconditioner_type, ["spatial", "spacetime"]
+        )
         self._space_fd: Optional[SpaceFD] = None
         self._sptime_fd: Optional[Union[FDarrowhead, FDlegacy]] = None
+
+    @property
+    def preconditioner_type(self) -> Literal["spatial", "spacetime"]:
+        return self._preconditioner_type
 
     @property
     def space_preconditioner(self):
@@ -26,7 +36,7 @@ class SingleFastDiagonalization:
 
     @property
     def sptm_preconditioner(self):
-        if self._sptime_fd is None:
+        if self.preconditioner_type == "spatial" or self._sptime_fd is None:
             raise RuntimeError("Space-time preconditioner not defined.")
         return self._sptime_fd
 
@@ -69,12 +79,13 @@ class SingleFastDiagonalization:
         -----
         The old method is at least twice slower than arrow head.
         """
-        if use_arrowhead:
-            precond = FDarrowhead(self.space_preconditioner)
-        else:
-            precond = FDlegacy(self.space_preconditioner)
-        precond.compute_time_schurdecomposition(time_quadrule)
-        self._sptime_fd = precond
+        if self.preconditioner_type == "spatial":
+            raise RuntimeError("Space-time preconditioner not defined.")
+
+        sp_fd = self.space_preconditioner
+        sptm_fd = FDarrowhead(sp_fd) if use_arrowhead else FDlegacy(sp_fd)
+        sptm_fd.compute_time_schurdecomposition(time_quadrule)
+        self._sptime_fd = sptm_fd
 
     def update_space_eigenvalues(self, scalar_coefs: Sequence[float]):
         """
@@ -125,61 +136,50 @@ class SingleFastDiagonalization:
         The length of the list should be equal to the number of DoFs per node.
         """
         if self._space_fd is not None:
-            self._space_fd.add_scalar_space_correctors(
+            self.space_preconditioner.add_scalar_space_correctors(
                 mass_corrector=mass_corrector, stiffness_corrector=stiffness_corrector
             )
         if self._sptime_fd is not None:
-            self._sptime_fd.add_scalar_time_correctors(
+            self.sptm_preconditioner.add_scalar_time_correctors(
                 advection_corrector=advection_corrector
             )
 
-    def apply_spatial_preconditioner(self, array_in: np.ndarray) -> np.ndarray:
+    def apply(self, array_in: np.ndarray) -> np.ndarray:
         """
-        Apply the spatial part of the fast-diagonalization preconditioner to the input array.
+        Apply the fast-diagonalization preconditioner to the input array.
 
         Parameters
         ----------
         array_in : ndarray
-            Input array to which the spatial preconditioner will be applied.
+            Input array to which the preconditioner will be applied.
 
         Returns
         -------
         ndarray
             Output array after applying preconditioner.
         """
-        return self.space_preconditioner.apply_spatial_preconditioner(array_in)
+        if self.preconditioner_type == "spatial":
+            return self.space_preconditioner.apply(array_in)
+        return self.sptm_preconditioner.apply(array_in)
 
-    def apply_spacetime_preconditioner(self, array_in: np.ndarray) -> np.ndarray:
+    def apply_transpose(self, array_in: np.ndarray) -> np.ndarray:
         """
-        Apply the full space-time fast-diagonalization preconditioner to the input array.
+        Apply the transpose of the fast-diagonalization preconditioner to the input array.
 
         Parameters
         ----------
         array_in : ndarray
-            Input array to which the full space-time preconditioner will be applied.
+            Input array to which the preconditioner will be applied
 
         Returns
         -------
         ndarray
             Output array after applying preconditioner.
         """
-        return self.sptm_preconditioner.apply_spacetime_preconditioner(array_in)
-
-    def apply_spacetime_preconditioner_trans(self, array_in: np.ndarray) -> np.ndarray:
-        """
-        Apply the transpose of full space-time fast-diagonalization preconditioner to the input array.
-
-        Parameters
-        ----------
-        array_in : ndarray
-            Input array to which the full space-time preconditioner will be applied
-
-        Returns
-        -------
-        ndarray
-            Output array after applying preconditioner.
-        """
-        return self.sptm_preconditioner.apply_spacetime_preconditioner_trans(array_in)
+        if self.preconditioner_type == "spatial":
+            # NOTE: The transpose is the same in spatial preconditioner
+            return self.space_preconditioner.apply(array_in)
+        return self.sptm_preconditioner.apply_transpose(array_in)
 
     def __repr__(self) -> str:
         message = f""""
