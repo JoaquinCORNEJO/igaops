@@ -1,6 +1,7 @@
 from matplotlib import ticker as ticker
 from matplotlib import pyplot as plt
 from pathlib import Path
+import matplotlib as mpl
 import seaborn as sns
 import pandas as pd
 import os
@@ -10,6 +11,30 @@ FOLDER = FILEPATH / "results"
 if not os.path.isdir(FOLDER):
     os.mkdir(FOLDER)
 
+
+mpl.rcParams.update(
+    {
+        "axes.grid": True,
+        "axes.unicode_minus": True,
+        "mathtext.fontset": "stixsans",
+        "text.usetex": False,
+        "font.family": "sans-serif",
+        "text.latex.preamble": r"""
+        \usepackage{helvet}
+        \usepackage{amsmath}
+    """,
+    }
+)
+
+SMALL_SIZE, MEDIUM_SIZE, BIGGER_SIZE = 12, 15, 18
+
+plt.rc("font", size=SMALL_SIZE)
+plt.rc("axes", titlesize=SMALL_SIZE)
+plt.rc("xtick", labelsize=SMALL_SIZE)
+plt.rc("ytick", labelsize=SMALL_SIZE)
+plt.rc("legend", fontsize=SMALL_SIZE)
+plt.rc("axes", labelsize=MEDIUM_SIZE)
+plt.rc("figure", titlesize=BIGGER_SIZE)
 sns.set_style("whitegrid")
 
 
@@ -91,7 +116,7 @@ try:
     plt.close()
 
 except:
-    testfile = "performance_matvec_elliptic"
+    testfile = "performance_matvec_sptm"
     print(f"{filename} not found. Try first {testfile}")
 
 ################################################################################
@@ -100,25 +125,23 @@ except:
 
 
 def plot_performance_envelope(
-    df: pd.DataFrame, nbel: str, time: str, deg: str, ax, color="teal", label=None
+    df: pd.DataFrame, nbel: str, time: str, deg: str, ax, label=None
 ):
     subgroup = df[df[deg] > 1]
-    envelope = subgroup.groupby(nbel)[time].agg(["min", "max"]).reset_index()
-    ax.fill_between(
-        envelope[nbel],
-        envelope["min"],
-        envelope["max"],
-        color=color,
-        alpha=0.5,
+    sns.lineplot(
+        data=subgroup,
+        x=nbel,
+        y=time,
+        estimator="mean",
+        errorbar=("pi", 100),
+        ax=ax,
         label=label,
     )
-    return
 
 
 try:
     fig, ax = plt.subplots(figsize=(5, 5))
 
-    #
     filename = FOLDER / "cpu_time_elliptic_matvec"
 
     df = pd.read_csv(f"{filename}.csv")
@@ -128,7 +151,6 @@ try:
         "time_conductivity",
         "degree",
         ax,
-        color="tab:orange",
         label="MF-WQ w. conductivity matrix",
     )
     plot_performance_envelope(
@@ -137,7 +159,6 @@ try:
         "time_capacity",
         "degree",
         ax,
-        color="tab:green",
         label="MF-WQ w. capacity matrix",
     )
 
@@ -151,7 +172,6 @@ try:
         "time",
         "degree",
         ax,
-        color="tab:blue",
         label="Apply preconditioner",
     )
 
@@ -176,7 +196,6 @@ except:
 try:
     fig, ax = plt.subplots(figsize=(5, 5))
 
-    #
     filename = FOLDER / "cpu_time_sptm_matvec"
 
     df = pd.read_csv(f"{filename}.csv")
@@ -186,11 +205,9 @@ try:
         "time",
         "degree",
         ax,
-        color="tab:orange",
         label="MF-WQ w. Picard matrix",
     )
 
-    #
     filename = FOLDER / "cpu_time_sptm_fastdiag"
 
     df = pd.read_csv(f"{filename}.csv")
@@ -200,7 +217,6 @@ try:
         "time",
         "degree",
         ax,
-        color="tab:blue",
         label="Apply preconditioner",
     )
 
