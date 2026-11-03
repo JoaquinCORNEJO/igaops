@@ -8,7 +8,7 @@ from scipy import sparse as sp
 import numpy as np
 
 from igaops.common import Constants
-from .template import Template
+from .template import Template, preconditioner_like
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,10 @@ class StandardLagrange(Template):
         return self._kernel
 
     def _solve_local_system(
-        self, apply_T: Callable, rhs: np.ndarray, apply_P: Optional[Callable]
+        self,
+        apply_T: Callable,
+        rhs: np.ndarray,
+        preconditioner: Optional[preconditioner_like],
     ):
         "Solve the system Z^T T Z"
 
@@ -43,12 +46,12 @@ class StandardLagrange(Template):
 
         def red_preconditioner(rx_red: np.ndarray) -> np.ndarray:
             "Apply preconditioner for the standard method: Z^T P Z"
-            if not callable(apply_P):
+            if preconditioner is None:
                 return rx_red
             # NOTE: Z @ xred is equivalent to solve Z.T y = xred
             # since Z is orthogonal, ie, Z @ Z.T = Identity
             y = self.kernel @ rx_red
-            w = apply_P(y)
+            w = preconditioner.apply(y)
             # NOTE: Z.T @ w is equivalent to solve Z out = w
             # since Z is orthogonal, ie, Z.T @ Z = Identity
             return self.kernel.T @ w
@@ -58,10 +61,9 @@ class StandardLagrange(Template):
     def compute_increment_lag(
         self,
         apply_T: Callable,
-        apply_P: Optional[Callable],
+        preconditioner: Optional[preconditioner_like],
         lagrange_res: np.ndarray,
         current_sol: np.ndarray,
-        apply_Ptrans: Optional[Callable] = None,
         reuse: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
 
@@ -79,7 +81,7 @@ class StandardLagrange(Template):
         rhs = residual - apply_T(delta_up)
         rhs_red = self.kernel.T @ rhs
 
-        y = self._solve_local_system(apply_T, rhs_red, apply_P)
+        y = self._solve_local_system(apply_T, rhs_red, preconditioner)
         delta_ug = self.kernel @ y
         delta_u = delta_up + delta_ug
 

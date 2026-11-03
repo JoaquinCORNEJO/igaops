@@ -286,24 +286,33 @@ class SpaceFD(Template):
         """
         start = time()
         tail_shape = array_in.shape[1:]
-        array_in = np.reshape(array_in, (self.nbDoFsPerNode, -1, *tail_shape))
+        n1 = self.nbDoFsPerNode
+        n2 = array_in.shape[0] // n1
+
+        array_in = np.reshape(array_in, (n1, n2, -1))
         array_out = np.zeros_like(array_in)
 
-        for ii in range(self.nbDoFsPerNode):
-            array_to_apply = array_in[ii][self.space_free_nodes[ii]]
-            if np.linalg.norm(array_to_apply) == 0.0:
+        for ii in range(n1):
+            free_nodes = self.space_free_nodes[ii]
+            array_to_apply = array_in[ii, free_nodes]
+
+            active_columns = np.any(array_to_apply != 0.0, axis=0)
+            if not np.any(active_columns):
                 continue
 
-            array = MatrixFree.apply(
-                self.eigenvec_by_dir_space[ii],
-                array_to_apply,
-                is_transpose=True,
+            array_active = array_to_apply[:, active_columns]
+            array_active = MatrixFree.apply(
+                self.eigenvec_by_dir_space[ii], array_active, is_transpose=True
             )
+
             inv_eigenvalues = 1.0 / self.space_eigenvalues[ii]
-            array = np.einsum("i,i...->i...", inv_eigenvalues, array, optimize=True)
-            array_out[ii][self.space_free_nodes[ii]] = MatrixFree.apply(
-                self.eigenvec_by_dir_space[ii], array, is_transpose=False
+            array_active *= inv_eigenvalues[:, np.newaxis]
+
+            array_active = MatrixFree.apply(
+                self.eigenvec_by_dir_space[ii], array_active, is_transpose=False
             )
+
+            array_out[ii][np.ix_(free_nodes, active_columns)] = array_active
 
         logger.debug(
             f"Single patch fast-diagonalization in {time() - start:.2e} seconds"

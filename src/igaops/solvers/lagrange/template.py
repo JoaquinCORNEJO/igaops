@@ -7,11 +7,13 @@ from scipy import sparse as sp
 import numpy as np
 
 from igaops.common import Constants
+from igaops.fastdiag import SingleFD, MultiFD
 from igaops.solvers.linear_solver import LinearSolver
 from igaops.solvers.utils.argsclass import SolverArgs
 
 logger = logging.getLogger(__name__)
 array_like = Union[np.ndarray, sp.csr_array, LinearOperator]
+preconditioner_like = Union[SingleFD, MultiFD]
 
 
 class Template(ABC):
@@ -167,10 +169,9 @@ class Template(ABC):
     def compute_increment_lag(
         self,
         apply_T: Callable,
-        apply_P: Optional[Callable],
+        preconditioner: Optional[preconditioner_like],
         lagrange_res: np.ndarray,
         current_sol: np.ndarray,
-        apply_Ptrans: Optional[Callable] = None,
         reuse: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -180,10 +181,9 @@ class Template(ABC):
         ----------
         apply_T : callable
             The tangent matrix (in the sense of structural mechanics).
-        apply_P : callable, optional
+        preconditioner : preconditioner_like, optional
             A good preconditioner for matrix T.
-        apply_Ptrans : callable, optional
-            Transpose of apply_P.
+            It should be a class with methods apply and apply_transpose.
         lagrange_res : ndarray
             The residual that includes constraints.
         current_sol : ndarray, optional

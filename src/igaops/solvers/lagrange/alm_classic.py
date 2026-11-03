@@ -3,7 +3,7 @@ import logging
 
 import numpy as np
 
-from .alm_template import ALM_Template
+from .alm_template import ALM_Template, preconditioner_like
 
 logger = logging.getLogger(__name__)
 
@@ -17,40 +17,38 @@ class AugmentedLagrange(ALM_Template):
         self,
         apply_T: Callable,
         rhs: np.ndarray,
-        apply_P: Optional[Callable],
-        apply_Ptrans: Optional[Callable],
+        preconditioner: Optional[preconditioner_like],
         reuse: bool,
     ):
         "Solve the system A + rho C C^T"
 
-        if (not reuse or self._local_solver is None) and apply_P is not None:
-            self._set_local_solver(apply_P, apply_Ptrans)
+        if (not reuse or self._local_solver is None) and preconditioner is not None:
+            self._set_local_solver(preconditioner)
 
-        def matvec(x: np.ndarray) -> np.ndarray:
+        def new_matvec(x: np.ndarray) -> np.ndarray:
             "Computes M11 x where M11 = (T + rho * C^T C)"
             CT_C_x = self.dual_matrix.T @ self.constraint_matrix @ x
             return apply_T(x) + self.lagrange_penalty * CT_C_x
 
-        def preconditioner(x: np.ndarray):
-            if not callable(apply_P):
+        def new_precond(x: np.ndarray):
+            if preconditioner is None:
                 return x
 
-            zz = apply_P(x)
+            zz = preconditioner.apply(x)
             ss = np.asarray(self.constraint_matrix @ zz)
             ww = self.local_solver.solve(ss)
             tt = np.asarray(self.dual_matrix.T @ ww)
-            uu = zz - apply_P(tt)
+            uu = zz - preconditioner.apply(tt)
             return uu
 
-        return self._get_loose_solution(matvec, rhs, preconditioner)
+        return self._get_loose_solution(new_matvec, rhs, new_precond)
 
     def compute_increment_lag(
         self,
         apply_T: Callable,
-        apply_P: Optional[Callable],
+        preconditioner: Optional[preconditioner_like],
         lagrange_res: np.ndarray,
         current_sol: np.ndarray,
-        apply_Ptrans: Optional[Callable] = None,
         reuse: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
 
@@ -71,12 +69,12 @@ class AugmentedLagrange(ALM_Template):
             Apply a preconditioner for the ALM matrix: [M11, C^T; 0, -I/rho]
             Here M11 is solved with a loose tolerance using preconditioner P.
             """
-            if not callable(apply_P):
+            if preconditioner is None:
                 return rz
 
             dlam = -RHO * rz[-NR:]
             rhs_x = rz[:-NR] - self.dual_matrix.T @ dlam
-            dx = self._solve_local_system(apply_T, rhs_x, apply_P, apply_Ptrans, reuse)
+            dx = self._solve_local_system(apply_T, rhs_x, preconditioner, reuse)
             self.inner_residual.append(self.loose_solver.last_simulation.residual)
             return np.hstack((dx, dlam))
 

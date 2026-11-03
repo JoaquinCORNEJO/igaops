@@ -136,12 +136,16 @@ class KronProduct:
         if axis == 0:
             for curr in arrays[1:]:
                 result = np.reshape(
-                    curr[None, :, :] * result[:, None, :], (-1, m), order="F"
+                    curr[np.newaxis, :, :] * result[:, np.newaxis, :],
+                    (-1, m),
+                    order="F",
                 )
         elif axis == 1:
             for curr in arrays[1:]:
                 result = np.reshape(
-                    curr[:, None, :] * result[:, :, None], (n, -1), order="F"
+                    curr[:, np.newaxis, :] * result[:, :, np.newaxis],
+                    (n, -1),
+                    order="F",
                 )
         else:
             raise NotImplementedError()
