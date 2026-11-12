@@ -125,7 +125,7 @@ def simulate(
 
     Precond = None
     if preconditioner == "fd" or preconditioner == "jm":
-        fd = SingleFD()
+        fd = SingleFD("spatial")
         fd.compute_space_eigendecomposition(
             patch.quadrule_list,
             np.zeros((1, patch.ndim, 2)),
@@ -134,7 +134,7 @@ def simulate(
             mc = float(np.mean(patch.det_jac))
             fd.add_scalar_space_time_correctors(mass_corrector=[mc])
         fd.update_space_eigenvalues(scalar_coefs=[1, 0])
-        Precond = fd.apply_spatial_preconditioner
+        Precond = fd.apply
 
     elif preconditioner == "ilu":
         matrix = matvec(np.eye(patch.nbctrlpts_total))

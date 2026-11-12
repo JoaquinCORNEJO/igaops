@@ -68,14 +68,12 @@ def test_single_vs_block_solver_consistency(patch, linear_type):
         )
 
     # preconditioner
-    fd = SingleFD()
+    fd = SingleFD("spatial")
     fd.compute_space_eigendecomposition(
         patch.quadrule_list,
         np.zeros((1, patch.ndim, 2)),
     )
     fd.update_space_eigenvalues(scalar_coefs=[1, 0])
-
-    precond = fd.apply_spatial_preconditioner
 
     # RHS
     N = 5
@@ -94,7 +92,7 @@ def test_single_vs_block_solver_consistency(patch, linear_type):
         sol_single[:, i] = solver.solve(
             Afun=matvec,
             b=noise[:, i],
-            Pfun=precond,
+            Pfun=fd.apply,
             recycled_size=5,
         ).solution
 
@@ -108,7 +106,7 @@ def test_single_vs_block_solver_consistency(patch, linear_type):
     sol_block = solver_block.solve(
         Afun=matvec,
         b=noise,
-        Pfun=precond,
+        Pfun=fd.apply,
     ).solution
 
     np.testing.assert_allclose(sol_single, sol_block, rtol=1e-6, atol=1e-6)

@@ -115,7 +115,7 @@ def build_fd(quadrule_list, ndim):
     table_dirichlet = np.ones((1, ndim, 2), dtype=bool)
     table_dirichlet[0, 0, 0] = False
 
-    fd = SingleFD()
+    fd = SingleFD("spatial")
 
     fd.compute_space_eigendecomposition(
         space_quadrule_list=quadrule_list,
@@ -151,7 +151,7 @@ def test_fast_diagonalization(problem, rng):
     pv_dense = np.zeros_like(v)
     pv_dense[free_nodes] = tmp
 
-    pv_mf = fd.apply_spatial_preconditioner(v)
+    pv_mf = fd.apply(v)
 
     np.testing.assert_allclose(pv_dense, pv_mf)
 
@@ -177,7 +177,7 @@ def test_preconditioner_matches_direct_solver(problem, rng):
     size = stiffness.shape[0]
     v = rng.random(size)
 
-    sol_mf = fd.apply_spatial_preconditioner(v)
+    sol_mf = fd.apply(v)
 
     A = stiffness[np.ix_(free_nodes, free_nodes)]
     b = v[free_nodes]

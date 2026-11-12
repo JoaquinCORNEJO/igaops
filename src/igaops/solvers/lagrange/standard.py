@@ -8,7 +8,7 @@ from scipy import sparse as sp
 import numpy as np
 
 from igaops.common import Constants
-from .template import Template
+from .template import Template, preconditioner_like
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,8 @@ class StandardLagrange(Template):
     """
 
     @property
-    def lagrange_type(self):
-        return "standard"
+    def is_penalty_necessary(self):
+        return False
 
     @property
     def kernel(self):
@@ -30,54 +30,63 @@ class StandardLagrange(Template):
             self._kernel = Helpers.compute_kernel(np.asarray(constraint_matrix))
         return self._kernel
 
+    def _solve_local_system(
+        self,
+        apply_T: Callable,
+        rhs: np.ndarray,
+        preconditioner: Optional[preconditioner_like],
+    ):
+        "Solve the system Z^T T Z"
+
+        def red_matvec(x_red: np.ndarray) -> np.ndarray:
+            "Computes M x_red where M = (Z^T T Z)"
+            x = self.kernel @ x_red
+            y = apply_T(x)
+            return self.kernel.T @ y
+
+        def red_preconditioner(rx_red: np.ndarray) -> np.ndarray:
+            "Apply preconditioner for the standard method: Z^T P Z"
+            if preconditioner is None:
+                return rx_red
+            # NOTE: Z @ xred is equivalent to solve Z.T y = xred
+            # since Z is orthogonal, ie, Z @ Z.T = Identity
+            y = self.kernel @ rx_red
+            w = preconditioner.apply(y)
+            # NOTE: Z.T @ w is equivalent to solve Z out = w
+            # since Z is orthogonal, ie, Z.T @ Z = Identity
+            return self.kernel.T @ w
+
+        return self._get_solution(red_matvec, rhs, red_preconditioner)
+
     def compute_increment_lag(
         self,
         apply_T: Callable,
-        apply_P: Optional[Callable],
+        preconditioner: Optional[preconditioner_like],
         lagrange_res: np.ndarray,
         current_sol: np.ndarray,
+        reuse: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
+
+        # NOTE: Standard Lagrange solver does not require previous precomputations
+        # the keyword reuse is not neccesary but is kept to maintain syntaxis
 
         residual = lagrange_res.copy()
         solution = current_sol.copy()
 
-        def Zdot(x):
-            y = self.kernel @ x
-            return y
-
-        def Zdot_T(x):
-            return self.kernel.T @ x
-
         res_lam = self._compute_dual_residual(solution)
-        delta_up = Helpers.lstsq(self.constraint_matrix, res_lam, is_transpose=False)
-
-        def red_matvec(x_red: np.ndarray) -> np.ndarray:
-            "Computes M x_red where M = (Z^T T Z)"
-            x = Zdot(x_red)
-            y = apply_T(x)
-            return Zdot_T(y)
-
-        def red_preconditioner(x_red: np.ndarray) -> np.ndarray:
-            "Apply preconditioner for the standard method: Z^T P Z"
-            if not callable(apply_P):
-                return x_red
-            # NOTE: Z @ xred is equivalent to solve Z.T y = xred
-            # since Z is orthogonal, ie, Z @ Z.T = Identity
-            y = Zdot(x_red)
-            w = apply_P(y)
-            # NOTE: Z.T @ w is equivalent to solve Z out = w
-            # since Z is orthogonal, ie, Z.T @ Z = Identity
-            return Zdot_T(w)
+        delta_up = Helpers.least_square(
+            self.constraint_matrix, res_lam, is_transpose=False
+        )
 
         rhs = residual - apply_T(delta_up)
-        rhs_red = Zdot_T(rhs)
+        rhs_red = self.kernel.T @ rhs
 
-        y = self._get_solution(red_matvec, rhs_red, red_preconditioner)
-        delta_ug = Zdot(y)
+        y = self._solve_local_system(apply_T, rhs_red, preconditioner)
+        delta_ug = self.kernel @ y
         delta_u = delta_up + delta_ug
 
         Tdug = apply_T(delta_ug)
-        delta_mult = Helpers.lstsq(
+        delta_mult = Helpers.least_square(
             self.constraint_matrix, rhs - Tdug, is_transpose=True
         )
 
@@ -171,7 +180,7 @@ class Helpers:
         return Z
 
     @staticmethod
-    def lstsq(
+    def least_square(
         M: Union[np.ndarray, sp.csr_array, LinearOperator],
         rhs: np.ndarray,
         is_transpose=False,

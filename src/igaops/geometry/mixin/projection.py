@@ -119,12 +119,12 @@ class ProjectionMixin(SingleSpline):
             return x_out
 
         # Define preconditioner
-        fastdiag = SingleFD()
+        fastdiag = SingleFD("spatial")
         fastdiag.compute_space_eigendecomposition(
             self.quadrule_list, np.zeros((1, self.ndim, 2))
         )
         fastdiag.update_space_eigenvalues(scalar_coefs=[1, 0])
-        precond = fastdiag.apply_spatial_preconditioner
+        precond = fastdiag.apply
 
         # Solve projection problem
         # TODO: introduce "block_cg" instead of "cg"

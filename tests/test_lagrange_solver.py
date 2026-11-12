@@ -36,7 +36,7 @@ def test_direct_solver(Cmat, fvec, gvec):
     np.testing.assert_allclose(solution, expected, atol=1e-8)
 
 
-@pytest.mark.parametrize("lagrange_type", ["standard", "augmented"])
+@pytest.mark.parametrize("lagrange_type", ["standard", "alm_classic"])
 def test_iterative_solver(Cmat, fvec, gvec, lagrange_type):
     class CallBack:
         def __init__(self, n: int):

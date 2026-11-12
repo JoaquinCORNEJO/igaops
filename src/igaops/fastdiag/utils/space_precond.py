@@ -137,12 +137,13 @@ class SpaceFD(Template):
             A boolean array indicating the Dirichlet boundary conditions for each DoFs per node and direction.
         """
         quadrule_list = self.rewrite_quadrature(space_quadrule_list)
-        mass_list: List[sp.csr_array] = [
-            q.weights[0] @ q.basis[0] for q in quadrule_list
+        mass_list: List[np.ndarray] = [
+            sp.csr_array(q.weights[0] @ q.basis[0]).toarray() for q in quadrule_list
         ]
-        stiff_list: List[sp.csr_array] = [
-            q.weights[-1] @ q.basis[-1] for q in quadrule_list
+        stiff_list: List[np.ndarray] = [
+            sp.csr_array(q.weights[-1] @ q.basis[-1]).toarray() for q in quadrule_list
         ]
+        nnz_list = [m.shape[0] for m in mass_list]
 
         nbDoFsPerNode, nbdirs, _ = np.shape(space_table_dirichlet)
         nbdirs = np.min([nbdirs, len(quadrule_list)])
@@ -156,9 +157,7 @@ class SpaceFD(Template):
             mass_corrector.append(1.0)
             stif_corrector.append(np.ones(nbdirs))
             for jj, sp_dir in enumerate(space_dirs):
-                B: np.ndarray = mass_list[jj].toarray()
-                A: np.ndarray = stiff_list[jj].toarray()
-                nnz = B.shape[0]
+                nnz = nnz_list[jj]
                 inf_index, sup_index = 0, nnz
                 if space_table_dirichlet[ii, jj, 0]:
                     inf_index += 1
@@ -167,12 +166,13 @@ class SpaceFD(Template):
                 indices = np.arange(inf_index, sup_index, dtype=int).tolist()
                 nnz_by_dir[sp_dir] = nnz
                 indx_by_dir[(ii, sp_dir)] = indices
+
+                B = mass_list[jj][np.ix_(indices, indices)]
+                A = stiff_list[jj][np.ix_(indices, indices)]
                 if nnz == len(indices):
-                    # NOTE: this avoids division by zero
-                    A += Constants.SMALL * B
-                eigvals, eigvecs = sclin.eigh(
-                    A[np.ix_(indices, indices)], B[np.ix_(indices, indices)]
-                )
+                    # NOTE: this avoids null eigenvalues
+                    A += Constants.TINY * B
+                eigvals, eigvecs = sclin.eigh(A, B)
                 eigvecs_by_dir.append(np.real(eigvecs))
                 eigvals_by_dir.append(np.real(eigvals))
             all_eigvecs_by_dir.append(eigvecs_by_dir)
@@ -228,6 +228,9 @@ class SpaceFD(Template):
                 * np.ones_like(eigenvalues_mixed)
                 + scalar_coefs[1] * eigenvalues_mixed
             )
+            current_eig = np.maximum(
+                current_eig, Constants.SAFEGUARD * np.max(current_eig)
+            )
             space_eigenvalues.append(current_eig)
         self._space_scalar_coefs = (float(scalar_coefs[0]), float(scalar_coefs[1]))
         return space_eigenvalues
@@ -267,7 +270,7 @@ class SpaceFD(Template):
             self._stiff_space_corrector = stiffness_corrector
             self._space_eigenvalues = None
 
-    def apply_spatial_preconditioner(self, array_in: np.ndarray) -> np.ndarray:
+    def apply(self, array_in: np.ndarray) -> np.ndarray:
         """
         Apply the spatial part of the fast-diagonalization preconditioner to the input array.
 
@@ -283,29 +286,33 @@ class SpaceFD(Template):
         """
         start = time()
         tail_shape = array_in.shape[1:]
-        array_in = np.reshape(array_in, (self.nbDoFsPerNode, -1, *tail_shape))
+        n1 = self.nbDoFsPerNode
+        n2 = array_in.shape[0] // n1
+
+        array_in = np.reshape(array_in, (n1, n2, -1))
         array_out = np.zeros_like(array_in)
 
-        for ii in range(self.nbDoFsPerNode):
-            array_to_apply = array_in[ii][self.space_free_nodes[ii]]
-            if np.linalg.norm(array_to_apply) == 0.0:
+        for ii in range(n1):
+            free_nodes = self.space_free_nodes[ii]
+            array_to_apply = array_in[ii, free_nodes]
+
+            active_columns = np.any(array_to_apply != 0.0, axis=0)
+            if not np.any(active_columns):
                 continue
 
-            array = MatrixFree.apply(
-                self.eigenvec_by_dir_space[ii],
-                array_to_apply,
-                is_transpose=True,
+            array_active = array_to_apply[:, active_columns]
+            array_active = MatrixFree.apply(
+                self.eigenvec_by_dir_space[ii], array_active, is_transpose=True
             )
-            eigenvalues = self.space_eigenvalues[ii].copy()
-            if np.any(eigenvalues <= Constants.TINY):
-                # Apply regularization
-                logger.warning("Apply regularization")
-                eigenvalues += Constants.TINY * np.max(eigenvalues)
-            inv_eigenvalues = 1.0 / eigenvalues
-            array = np.einsum("i,i...->i...", inv_eigenvalues, array, optimize=True)
-            array_out[ii][self.space_free_nodes[ii]] = MatrixFree.apply(
-                self.eigenvec_by_dir_space[ii], array, is_transpose=False
+
+            inv_eigenvalues = 1.0 / self.space_eigenvalues[ii]
+            array_active *= inv_eigenvalues[:, np.newaxis]
+
+            array_active = MatrixFree.apply(
+                self.eigenvec_by_dir_space[ii], array_active, is_transpose=False
             )
+
+            array_out[ii][np.ix_(free_nodes, active_columns)] = array_active
 
         logger.debug(
             f"Single patch fast-diagonalization in {time() - start:.2e} seconds"

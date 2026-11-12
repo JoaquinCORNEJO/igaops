@@ -99,33 +99,28 @@ class NurbsOperations(Template):
         hess = np.zeros_like(hess_first, dtype=float)
 
         for i in range(hess.shape[0]):
+            u_projected = matvec_customized(
+                [basis[0] for basis in basis_list],
+                u_at_ctrlpts_scaled[i],
+                along_axis=along_axis,
+            )
+
+            partialu_projected = np.zeros((hess.shape[1], *hess.shape[3:]))
             for j in range(hess.shape[1]):
                 alpha_list = np.zeros(ndim, dtype=int)
                 alpha_list[j] = 1
+                partialu_projected[j] = matvec_customized(
+                    [basis[a] for basis, a in zip(basis_list, alpha_list)],
+                    u_at_ctrlpts_scaled[i],
+                    along_axis=along_axis,
+                )
+
+            for j in range(hess.shape[1]):
                 for k in range(j, hess.shape[2]):
-                    beta_list = np.zeros(ndim, dtype=int)
-                    beta_list[k] = 1
-                    hess_second_1_ijk = (
-                        matvec_customized(
-                            [basis[a] for basis, a in zip(basis_list, alpha_list)],
-                            u_at_ctrlpts_scaled[i],
-                            along_axis=along_axis,
-                        )
-                        * z_proj[k]
-                    )
-                    hess_second_2_ijk = (
-                        matvec_customized(
-                            [basis[b] for basis, b in zip(basis_list, beta_list)],
-                            u_at_ctrlpts_scaled[i],
-                            along_axis=along_axis,
-                        )
-                        * z_proj[j]
-                    )
-                    u_projected = matvec_customized(
-                        [basis[0] for basis in basis_list],
-                        u_at_ctrlpts_scaled[i],
-                        along_axis=along_axis,
-                    )
+                    hess_second_1_ijk = partialu_projected[j] * z_proj[k]
+                    hess_second_2_ijk = hess_second_1_ijk.copy()
+                    if k != j:
+                        hess_second_2_ijk = partialu_projected[k] * z_proj[j]
                     hess_third_1_ij = u_projected * z_proj[j] * z_proj[k] / w_proj
                     hess_third_2_ij = u_projected * h_proj[j][k] / w_proj
                     hess[i][j][k] = hess[i][k][j] = (
@@ -156,16 +151,13 @@ class NurbsOperations(Template):
         jac_first = _Helpers.apply_scaling(jac_first, w_proj, left_depth=2)
         jac = np.zeros_like(jac_first, dtype=float)
         for i in range(jac.shape[0]):
+            u_projected = matvec_customized(
+                [basis[0] for basis in basis_list],
+                u_at_ctrlpts_scaled[i],
+                along_axis=along_axis,
+            )
             for j in range(jac.shape[1]):
-                jac_second_ij = (
-                    matvec_customized(
-                        [basis[0] for basis in basis_list],
-                        u_at_ctrlpts_scaled[i],
-                        along_axis=along_axis,
-                    )
-                    * z_proj[j]
-                )
-                jac[i][j] = jac_first[i][j] - jac_second_ij
+                jac[i][j] = jac_first[i][j] - u_projected * z_proj[j]
         return jac
 
     @staticmethod
@@ -196,11 +188,9 @@ class NurbsOperations(Template):
         w_proj = _Helpers.project_nurbs_weights(
             [q.basis for q in quadrule_list], nurbs_weights, nders=0
         )[0]
-        coefficients_copy = _Helpers.apply_scaling(
-            coefficients, w_proj**2, left_depth=0
-        )
+        broadcast = _Helpers.apply_scaling(coefficients, w_proj**2, left_depth=0)
         matrix = BsplineOperations.assemble_scalar_u_v(
-            quadrule_list, coefficients_copy, time_ders
+            quadrule_list, broadcast, time_ders
         )
         diags = sp.diags(nurbs_weights)
         return sp.csr_array(diags @ matrix @ diags)
@@ -216,32 +206,30 @@ class NurbsOperations(Template):
             [q.basis for q in quadrule_list], nurbs_weights, nders=1
         )
         # First term
-        coefficients_copy = _Helpers.apply_scaling(
-            coefficients, w_proj**2, left_depth=2
-        )
+        broadcast = _Helpers.apply_scaling(coefficients, w_proj**2, left_depth=2)
         matrix = BsplineOperations.assemble_scalar_gradu_gradv(
-            quadrule_list, coefficients_copy, time_ders
+            quadrule_list, broadcast, time_ders
         )
         # Second term
-        coefficients_copy = np.einsum(
+        broadcast = np.einsum(
             "ij...,i...,j...->...", coefficients, z_proj, z_proj, optimize=True
         )
         matrix += BsplineOperations.assemble_scalar_u_v(
-            quadrule_list, coefficients_copy, time_ders
+            quadrule_list, broadcast, time_ders
         )
         # Third term
-        coefficients_copy = np.einsum(
+        broadcast = np.einsum(
             "ij...,i...,...->j...", coefficients, z_proj, w_proj, optimize=True
         )
         matrix -= BsplineOperations.assemble_scalar_u_gradv(
-            quadrule_list, coefficients_copy, time_ders
+            quadrule_list, broadcast, time_ders
         )
         # Fourth term
-        coefficients_copy = np.einsum(
+        broadcast = np.einsum(
             "ij...,j...,...->i...", coefficients, z_proj, w_proj, optimize=True
         )
         matrix -= BsplineOperations.assemble_scalar_gradu_v(
-            quadrule_list, coefficients_copy, time_ders
+            quadrule_list, broadcast, time_ders
         )
         diags = sp.diags(nurbs_weights)
         return sp.csr_array(diags @ matrix @ diags)
@@ -263,16 +251,14 @@ class NurbsOperations(Template):
             else BsplineOperations.assemble_scalar_u_gradv
         )
         # First term
-        coefficients_copy = _Helpers.apply_scaling(
-            coefficients, w_proj**2, left_depth=1
-        )
-        matrix = oper(quadrule_list, coefficients_copy, time_ders)
+        broadcast = _Helpers.apply_scaling(coefficients, w_proj**2, left_depth=1)
+        matrix = oper(quadrule_list, broadcast, time_ders)
         # Second term
-        coefficients_copy = np.einsum(
+        broadcast = np.einsum(
             "i...,i...,...->...", coefficients, z_proj, w_proj, optimize=True
         )
         matrix -= BsplineOperations.assemble_scalar_u_v(
-            quadrule_list, coefficients_copy, time_ders
+            quadrule_list, broadcast, time_ders
         )
         diags = sp.diags(nurbs_weights)
         return sp.csr_array(diags @ matrix @ diags)
@@ -308,10 +294,8 @@ class NurbsOperations(Template):
         w_proj = _Helpers.project_nurbs_weights(
             [q.basis for q in quadrule_list], nurbs_weights, nders=0
         )[0]
-        coefficients_copy = _Helpers.apply_scaling(coefficients, w_proj, left_depth=1)
-        array_out = BsplineOperations.assemble_scalar_u_force(
-            quadrule_list, coefficients_copy
-        )
+        broadcast = _Helpers.apply_scaling(coefficients, w_proj, left_depth=1)
+        array_out = BsplineOperations.assemble_scalar_u_force(quadrule_list, broadcast)
         return _Helpers.apply_scaling(array_out, nurbs_weights, left_depth=1)
 
     @staticmethod
@@ -324,17 +308,13 @@ class NurbsOperations(Template):
             [q.basis for q in quadrule_list], nurbs_weights, nders=1
         )
         # First term
-        coefficients_copy = _Helpers.apply_scaling(coefficients, w_proj, left_depth=2)
+        broadcast = _Helpers.apply_scaling(coefficients, w_proj, left_depth=2)
         array_out = BsplineOperations.assemble_scalar_gradu_force(
-            quadrule_list, coefficients_copy
+            quadrule_list, broadcast
         )
         # Second term
-        coefficients_copy = np.einsum(
-            "ij...,j...->i...", coefficients, z_proj, optimize=True
-        )
-        array_out -= BsplineOperations.assemble_scalar_u_force(
-            quadrule_list, coefficients_copy
-        )
+        broadcast = np.einsum("ij...,j...->i...", coefficients, z_proj, optimize=True)
+        array_out -= BsplineOperations.assemble_scalar_u_force(quadrule_list, broadcast)
         return _Helpers.apply_scaling(array_out, nurbs_weights, left_depth=1)
 
     @staticmethod
@@ -352,14 +332,9 @@ class NurbsOperations(Template):
         array_in_copy = _Helpers.apply_scaling(
             array_in, nurbs_weights, left_depth=0, right_depth=rd
         )
-        coefficients_copy = _Helpers.apply_scaling(
-            coefficients, w_proj**2, left_depth=0
-        )
+        broadcast = _Helpers.apply_scaling(coefficients, w_proj**2, left_depth=0)
         array_out = BsplineOperations.compute_mf_scalar_u_v(
-            quadrule_list,
-            coefficients_copy,
-            array_in_copy,
-            time_ders=time_ders,
+            quadrule_list, broadcast, array_in_copy, time_ders=time_ders
         )
         return _Helpers.apply_scaling(
             array_out, nurbs_weights, left_depth=0, right_depth=rd
@@ -380,49 +355,35 @@ class NurbsOperations(Template):
         w_proj, z_proj, _ = _Helpers.project_nurbs_weights(
             [q.basis for q in quadrule_list], nurbs_weights, nders=1
         )
-        z_proj = z_proj[:sp_ndim, ...]
+        z_proj = z_proj[:sp_ndim]
         array_in_copy = _Helpers.apply_scaling(
             array_in, nurbs_weights, left_depth=0, right_depth=rd
         )
         # First term
-        coefficients_copy = _Helpers.apply_scaling(
-            coefficients, w_proj**2, left_depth=2
-        )
+        broadcast = _Helpers.apply_scaling(coefficients, w_proj**2, left_depth=2)
         array_out = BsplineOperations.compute_mf_scalar_gradu_gradv(
-            quadrule_list,
-            coefficients_copy,
-            array_in_copy,
-            time_ders=time_ders,
+            quadrule_list, broadcast, array_in_copy, time_ders=time_ders
         )
         # Second term
-        coefficients_copy = np.einsum(
+        broadcast = np.einsum(
             "ij...,i...,j...->...", coefficients, z_proj, z_proj, optimize=True
         )
         array_out += BsplineOperations.compute_mf_scalar_u_v(
-            quadrule_list,
-            coefficients_copy,
-            array_in_copy,
-            time_ders=time_ders,
+            quadrule_list, broadcast, array_in_copy, time_ders=time_ders
         )
         # Third term
-        coefficients_copy = np.einsum(
+        broadcast = np.einsum(
             "ij...,i...,...->j...", coefficients, z_proj, w_proj, optimize=True
         )
         array_out -= BsplineOperations.compute_mf_scalar_u_gradv(
-            quadrule_list,
-            coefficients_copy,
-            array_in_copy,
-            time_ders=time_ders,
+            quadrule_list, broadcast, array_in_copy, time_ders=time_ders
         )
         # Fourth term
-        coefficients_copy = np.einsum(
+        broadcast = np.einsum(
             "ij...,j...,...->i...", coefficients, z_proj, w_proj, optimize=True
         )
         array_out -= BsplineOperations.compute_mf_scalar_gradu_v(
-            quadrule_list,
-            coefficients_copy,
-            array_in_copy,
-            time_ders=time_ders,
+            quadrule_list, broadcast, array_in_copy, time_ders=time_ders
         )
         return _Helpers.apply_scaling(
             array_out, nurbs_weights, left_depth=0, right_depth=rd
@@ -444,7 +405,7 @@ class NurbsOperations(Template):
         w_proj, z_proj, _ = _Helpers.project_nurbs_weights(
             [q.basis for q in quadrule_list], nurbs_weights, nders=1
         )
-        z_proj = z_proj[:sp_ndim, ...]
+        z_proj = z_proj[:sp_ndim]
         array_in_copy = _Helpers.apply_scaling(
             array_in, nurbs_weights, left_depth=0, right_depth=rd
         )
@@ -454,24 +415,14 @@ class NurbsOperations(Template):
             else BsplineOperations.compute_mf_scalar_u_gradv
         )
         # First term
-        coefficients_copy = _Helpers.apply_scaling(
-            coefficients, w_proj**2, left_depth=1
-        )
-        array_out = oper(
-            quadrule_list,
-            coefficients_copy,
-            array_in_copy,
-            time_ders=time_ders,
-        )
+        broadcast = _Helpers.apply_scaling(coefficients, w_proj**2, left_depth=1)
+        array_out = oper(quadrule_list, broadcast, array_in_copy, time_ders=time_ders)
         # Second term
-        coefficients_copy = np.einsum(
+        broadcast = np.einsum(
             "i...,i...,...->...", coefficients, z_proj, w_proj, optimize=True
         )
         array_out -= BsplineOperations.compute_mf_scalar_u_v(
-            quadrule_list,
-            coefficients_copy,
-            array_in_copy,
-            time_ders=time_ders,
+            quadrule_list, broadcast, array_in_copy, time_ders=time_ders
         )
         return _Helpers.apply_scaling(
             array_out, nurbs_weights, left_depth=0, right_depth=rd
